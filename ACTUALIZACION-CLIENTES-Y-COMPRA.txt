@@ -1,0 +1,21 @@
+AGUI · Actualización de clientes y compra directa
+
+CAMBIOS
+- Cada producto muestra “Comprar ahora” para iniciar un pedido de una unidad sin añadirlo al carrito.
+- “Al carrito” sigue disponible para comprar varios productos o unidades juntas.
+- Se agregó “Iniciar sesión” en la cabecera. La cabecera muestra el primer nombre del cliente cuando su sesión está activa.
+- Los clientes pueden crear una cuenta con nombre, correo y contraseña, o iniciar sesión.
+- Todos los pedidos requieren una sesión de cliente y quedan relacionados con su cuenta.
+- Se conserva Google como alternativa opcional. Google no funciona hasta que se configuren sus credenciales OAuth reales.
+- La actualización de la tabla customers se aplica automáticamente al arrancar el servidor y no borra los datos anteriores.
+
+ACTUALIZACIÓN EN WINDOWS
+1. Extrae este ZIP en una carpeta nueva, por ejemplo C:\proyectos\AGUI\agui-store-v3.
+2. Copia el archivo .env de tu carpeta anterior a la nueva. No compartas ese archivo.
+3. Abre PowerShell en la carpeta nueva y ejecuta:
+   npm install
+   npm start
+4. Abre http://localhost:3000. Si ya tienes otra versión encendida, detén aquella ventana de consola con Ctrl+C antes de iniciar esta versión.
+
+NOTA SOBRE EL PAGO
+El checkout registra el pedido y permite continuar por WhatsApp para confirmar disponibilidad, entrega y método de pago. No procesa cargos con tarjeta ni pagos online reales todavía.

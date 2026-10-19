@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f45b16">
+  <meta name="description" content="AGUI Repostería y Arepas. El mejor sabor, en cada bocado.">
+  <title>AGUI | Repostería y Arepas</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script defer src="/js/app.js"></script>
+</head>
+<body>
+  <div id="aguiSplash" class="agui-splash" aria-label="Cargando AGUI" role="status">
+    <div class="splash-orbit orbit-one"></div><div class="splash-orbit orbit-two"></div>
+    <div class="splash-logo-wrap"><img src="/assets/logo.png" alt="Logo de AGUI"></div>
+    <div class="splash-wordmark">AGUI<span>✦</span></div>
+    <p>Repostería y Arepas</p><div class="splash-progress"><i></i></div><small>PREPARANDO ALGO ESPECIAL</small>
+  </div>
+  <div class="announcement"><span>✦</span> AGUI · El mejor sabor, en cada bocado <span>✦</span></div>
+  <header class="site-header">
+    <a class="brand" href="#inicio" aria-label="AGUI inicio">
+      <img src="/assets/logo.png" alt="Logo de AGUI">
+      <span><strong>AGUI</strong><small>Repostería y Arepas</small></span>
+    </a>
+    <button class="menu-toggle" id="menuToggle" aria-label="Abrir menú" aria-expanded="false">☰</button>
+    <nav class="main-nav" id="mainNav">
+      <a href="#inicio">Inicio</a><a href="#catalogo">Productos</a><a href="#nosotros">Nosotros</a><a href="#entregas">Entregas</a>
+    </nav>
+    <div class="header-actions">
+      <button class="account-button" id="customerAccount" aria-label="Abrir cuenta de cliente"><span class="account-avatar">♙</span><span id="customerGreeting">Iniciar sesión</span></button>
+      <button class="cart-button" id="cartOpen" aria-label="Abrir carrito"><span class="cart-glyph">🛒</span><span>Carrito</span><b id="cartCount">0</b></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="inicio">
+      <img class="hero-bg" src="/assets/cover.jpg" alt="" aria-hidden="true">
+      <div class="hero-shade"></div>
+      <div class="hero-content">
+        <div class="eyebrow"><span class="spark">✦</span> SABOR QUE SE SIENTE EN CASA</div>
+        <h1>La dulzura natural<br><em>en cada bocado.</em></h1>
+        <p>Tradición, cariño y sabor para acompañar tus mejores momentos.</p>
+        <div class="hero-actions"><a class="btn btn-primary" href="#catalogo">Explorar catálogo <span>↗</span></a><button class="btn btn-glass" id="heroWhatsapp">Hablar con AGUI</button></div>
+        <div class="hero-note"><span>✦</span> Preparado con cariño <span>·</span> Atención cercana</div>
+      </div>
+
+    </section>
+
+    <section class="promise-strip" aria-label="Beneficios">
+      <div><span class="promise-icon">♡</span><span><b>Hecho con cariño</b><small>Detalles que se sienten</small></span></div>
+      <div><span class="promise-icon">✦</span><span><b>Sabor casero</b><small>Para momentos especiales</small></span></div>
+      <div><span class="promise-icon">⌁</span><span><b>Atención directa</b><small>Estamos para ayudarte</small></span></div>
+    </section>
+
+    <section class="section section-products" id="catalogo">
+      <div class="section-heading"><div><span class="eyebrow">HECHOS PARA ANTOJARSE</span><h2>Un catálogo lleno de sabor</h2><p>Encuentra algo que te alegre el día.</p></div><a class="text-link" href="#catalogo">Explorar productos <span>→</span></a></div>
+      <div class="catalog-tools"><div class="category-chips" id="categoryChips"><button class="chip active" data-category="Todos">Todos</button></div><label class="search-box"><span>⌕</span><input id="productSearch" type="search" placeholder="Buscar en el catálogo…" aria-label="Buscar productos"></label></div>
+      <div class="product-grid" id="productGrid"><div class="loading-card">Preparando el catálogo de AGUI…</div></div>
+      <div class="empty-state hidden" id="emptyProducts">Todavía no hay productos para mostrar en esta categoría.</div>
+    </section>
+
+    <section class="brand-story" id="nosotros">
+      <div class="story-image"><img src="/assets/arepas.jpg" alt="Preparación de comida casera" loading="lazy"><span class="story-stamp">AGUI <i>♡</i></span></div>
+      <div class="story-copy"><span class="eyebrow">MÁS QUE UNA MARCA</span><h2>Los mejores momentos<br><em>se comparten.</em></h2><p>AGUI nace para acompañar esos ratos que importan: reuniones, meriendas y pequeños antojos de todos los días. Queremos que cada experiencia se sienta cercana, sencilla y llena de cariño.</p><div class="signature">AGUI <span>— El mejor sabor, en cada bocado.</span></div></div>
+    </section>
+
+    <section class="delivery-section" id="entregas">
+      <div class="delivery-title"><span class="eyebrow">LLEGAMOS HASTA TI</span><h2>Tu zona, nuestra atención.</h2><p>Consulta disponibilidad, costo y horario antes de confirmar tu pedido.</p></div>
+      <div class="zone-grid" id="zoneCards"><article class="zone-card"><span>⌖</span><b>Vegachí</b><small>Entrega por confirmar</small></article><article class="zone-card"><span>⌖</span><b>Yalí</b><small>Entrega por confirmar</small></article><article class="zone-card"><span>⌖</span><b>El Tigre</b><small>Entrega por confirmar</small></article></div>
+    </section>
+
+    <section class="final-cta"><div class="cta-spark">✦</div><div><span class="eyebrow">¿TIENES UNA DUDA?</span><h2>Estamos a un mensaje de distancia.</h2><p>Escríbenos y te ayudamos con tu pedido.</p></div><button class="btn btn-light" id="footerWhatsapp">Contactar por WhatsApp <span>↗</span></button></section>
+  </main>
+
+  <footer class="site-footer"><div class="footer-brand"><img src="/assets/logo.png" alt="AGUI"><div><b>AGUI</b><small>Repostería y Arepas</small></div></div><div class="footer-tagline">El mejor sabor, en cada bocado.</div><div class="footer-links"><a href="#catalogo">Catálogo</a><a href="#entregas">Entregas</a><button id="footerOwner">Acceso del dueño</button></div><div class="footer-bottom"><span>© <span id="year"></span> AGUI Repostería y Arepas</span><span>Hecho con cariño en Antioquia ♥</span></div></footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Cart / checkout dialog -->
+  <div class="overlay hidden" id="cartOverlay" role="dialog" aria-modal="true" aria-labelledby="cartTitle"><div class="dialog cart-dialog"><button class="close-button" data-close="cartOverlay" aria-label="Cerrar">×</button><div class="dialog-heading"><span class="eyebrow">TU SELECCIÓN</span><h2 id="cartTitle">Tu carrito</h2><p>Revisa tu selección y confirma los datos de entrega.</p></div><div id="cartItems" class="cart-items"></div><div class="cart-subtotal"><span>Subtotal</span><b id="cartSubtotal">$0</b></div><p class="subtle-note">El costo de entrega se confirma según la zona. El valor definitivo se valida con AGUI por WhatsApp.</p><button class="btn btn-primary full-width" id="goCheckout">Continuar con el pedido <span>→</span></button></div></div>
+  <div class="overlay hidden" id="checkoutOverlay" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle"><div class="dialog checkout-dialog"><button class="close-button" data-close="checkoutOverlay" aria-label="Cerrar">×</button><div class="dialog-heading"><span class="eyebrow">CASI LISTO</span><h2 id="checkoutTitle">Datos de entrega</h2><p>La dirección solo se solicita en el momento de realizar el pedido.</p></div><div class="customer-login-box" id="googleBox"><div><b>🔐 Inicia sesión para comprar</b><small id="checkoutLoginHint">Necesitas entrar a tu cuenta antes de confirmar el pedido.</small></div><div class="checkout-login-actions"><button class="btn btn-primary" type="button" id="checkoutLoginTrigger">Iniciar sesión / Crear cuenta</button><a class="btn btn-google hidden" id="googleLogin" href="/auth/google">G&nbsp; Continuar con Google</a><small id="googleSetupNote" class="google-setup-note">Google debe configurarse en el servidor. Mientras tanto, crea tu cuenta con correo y contraseña.</small></div></div><form id="checkoutForm" class="form-grid"><label>Nombre completo<input name="customer_name" required maxlength="160" autocomplete="name"></label><label>Teléfono / WhatsApp<input name="customer_phone" required maxlength="30" autocomplete="tel" inputmode="tel"></label><label class="span-2">Correo electrónico (opcional)<input name="customer_email" type="email" maxlength="254" autocomplete="email"></label><label>Zona de entrega<select name="delivery_zone" id="deliveryZone" required><option value="">Selecciona una zona</option></select></label><label>Medio de pago<select name="payment_method" id="paymentMethod" required><option value="contraentrega">Pago contra entrega (por confirmar)</option><option value="transferencia">Transferencia bancaria (por confirmar)</option></select></label><label class="span-2">Dirección de entrega<input name="delivery_address" required maxlength="255" autocomplete="street-address" placeholder="Barrio, calle, número o referencia"></label><label class="span-2">Indicaciones adicionales (opcional)<textarea name="delivery_notes" rows="2" maxlength="1000" placeholder="Casa, negocio, referencias para llegar…"></textarea></label><div class="checkout-summary span-2" id="checkoutSummary"></div><div class="span-2"><button class="btn btn-primary full-width" type="submit" id="submitOrder">Registrar pedido y continuar a WhatsApp <span>↗</span></button><p class="form-legal">El pedido queda pendiente hasta que AGUI confirme disponibilidad, entrega y pago. No se cobra dinero desde esta página.</p></div></form><div class="order-success hidden" id="orderSuccess"><span>✓</span><h3>Pedido registrado</h3><p id="orderSuccessText"></p><a class="btn btn-primary full-width" id="openOrderWhatsapp" target="_blank" rel="noopener">Continuar en WhatsApp ↗</a></div></div></div>
+
+  <!-- Acceso unificado: cliente y dueño usan la misma pantalla -->
+  <div class="overlay hidden" id="customerAuthOverlay" role="dialog" aria-modal="true" aria-labelledby="customerAuthTitle">
+    <div class="dialog login-dialog customer-auth-dialog">
+      <button class="close-button" data-close="customerAuthOverlay" aria-label="Cerrar">×</button>
+      <div class="admin-mark">AGUI<span>✦</span></div>
+      <span class="eyebrow">TU ESPACIO AGUI</span>
+      <h2 id="customerAuthTitle">Inicia sesión</h2>
+      <p id="customerAuthDescription">Entra a tu cuenta para hacer tus pedidos y guardar tus datos.</p>
+      <div class="auth-role-tabs" aria-label="Tipo de acceso">
+        <button type="button" class="auth-role-tab active" id="authRoleCustomer">Soy cliente</button>
+        <button type="button" class="auth-role-tab" id="authRoleOwner">Soy el dueño</button>
+      </div>
+      <section id="customerAuthPanel">
+        <div id="customerSignedInPanel" class="customer-signed-in hidden"><div class="customer-big-avatar">♙</div><h3>¡Hola, <span id="customerNameDisplay">cliente</span>!</h3><p id="customerEmailDisplay"></p><small>Tu cuenta está activa. Para comprar, completa los datos de entrega.</small><button class="btn btn-outline full-width" type="button" id="customerLogout">Cerrar sesión</button></div>
+        <div id="customerAuthForms">
+          <div class="auth-tabs"><button type="button" class="auth-tab active" id="authTabLogin" data-auth-tab="login">Iniciar sesión</button><button type="button" class="auth-tab" id="authTabRegister" data-auth-tab="register">Crear cuenta</button></div>
+          <form id="customerLoginForm" class="auth-form"><label>Correo electrónico<input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="tucorreo@ejemplo.com"></label><label>Contraseña<input type="password" name="password" required minlength="8" maxlength="72" autocomplete="current-password" placeholder="Tu contraseña"></label><button class="btn btn-primary full-width" type="submit">Entrar a mi cuenta <span>→</span></button></form>
+          <form id="customerRegisterForm" class="auth-form hidden"><label>Nombre completo<input type="text" name="full_name" required minlength="2" maxlength="160" autocomplete="name" placeholder="Tu nombre y apellido"></label><label>Correo electrónico<input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="tucorreo@ejemplo.com"></label><label>Crear contraseña<input type="password" name="password" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label><label>Confirmar contraseña<input type="password" name="password_confirm" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="Repite la contraseña"></label><button class="btn btn-primary full-width" type="submit">Crear cuenta y continuar <span>→</span></button><small class="form-legal">Usa una contraseña propia y segura. La contraseña se guarda protegida, no en texto visible.</small></form>
+          <div class="auth-divider"><span>o continúa con</span></div>
+          <a class="btn btn-google full-width hidden" id="googleLoginModal" href="/auth/google">G&nbsp; Continuar con Google</a>
+          <div id="googleAuthHelp" class="google-setup-note">El acceso con Google aún debe configurarse en el servidor. Mientras tanto, puedes crear tu cuenta con correo y contraseña.</div>
+        </div>
+      </section>
+      <section id="ownerAuthPanel" class="hidden">
+        <form id="adminLoginForm" class="auth-form"><label>Correo del administrador<input type="email" name="email" required value="guillermo171026@gmail.com" autocomplete="username"></label><label>Contraseña del dueño<input type="password" name="password" required minlength="12" autocomplete="current-password" placeholder="Contraseña creada al instalar AGUI"></label><button class="btn btn-primary full-width" type="submit">Entrar al panel de AGUI <span>→</span></button><small class="form-legal">Este acceso es privado. Usa la contraseña del panel administrativo, no la cuenta del cliente.</small></form>
+      </section>
+    </div>
+  </div>
+
+  <!-- Confirmaciones elegantes para acciones del panel -->
+  <div class="overlay hidden" id="actionConfirmOverlay" role="dialog" aria-modal="true" aria-labelledby="actionConfirmTitle">
+    <div class="dialog action-confirm-dialog"><div class="confirm-icon" id="actionConfirmIcon">✦</div><h3 id="actionConfirmTitle">¿Confirmar acción?</h3><p id="actionConfirmMessage">Revisa esta acción antes de continuar.</p><div class="confirm-actions"><button type="button" class="btn btn-outline" id="cancelActionConfirm">Cancelar</button><button type="button" class="btn btn-primary" id="acceptActionConfirm">Confirmar</button></div></div>
+  </div>
+
+  <!-- Full admin dashboard -->
+  <div class="admin-screen hidden" id="adminScreen"><header class="admin-top"><div class="admin-brand"><img src="/assets/logo.png" alt=""><span><b>AGUI</b><small>Panel del dueño</small></span></div><div class="admin-top-right"><span id="adminIdentity">Administrador</span><button class="btn btn-outline small" id="adminLogout">Cerrar sesión</button><button class="close-button admin-close" id="adminClose" aria-label="Volver a la tienda">×</button></div></header><div class="admin-layout"><aside class="admin-sidebar"><button class="admin-tab active" data-admin-tab="overview">▦ <span>Resumen</span></button><button class="admin-tab" data-admin-tab="products">▧ <span>Productos</span></button><button class="admin-tab" data-admin-tab="orders">▤ <span>Pedidos</span></button><button class="admin-tab" data-admin-tab="delivery">⌖ <span>Entregas</span></button><button class="admin-tab" data-admin-tab="settings">⚙ <span>Datos del negocio</span></button></aside><section class="admin-content"><div id="adminOverview" class="admin-pane"><div class="admin-page-title"><div><span class="eyebrow">CENTRO DE CONTROL</span><h1>Resumen de AGUI</h1><p>Una vista rápida de la operación de tu tienda.</p></div><button class="btn btn-primary" id="refreshDashboard">Actualizar ↻</button></div><div class="stat-grid" id="adminStats"></div><div class="admin-card"><div class="card-title-row"><div><h3>Pedidos recientes</h3><p>Consulta los pedidos que necesitan atención.</p></div><button class="text-link" data-switch-tab="orders">Ver todos →</button></div><div id="recentOrders" class="admin-table-wrap"></div></div><div class="admin-notice"><b>Consejo:</b> mantén actualizados los precios y configura las tarifas de envío antes de recibir pedidos reales.</div></div>
+<div id="adminProducts" class="admin-pane hidden"><div class="admin-page-title"><div><span class="eyebrow">CATÁLOGO</span><h1>Productos</h1><p>Crea, actualiza o desactiva artículos de la tienda.</p></div><button class="btn btn-primary" id="newProduct">＋ Nuevo producto</button></div><div class="admin-card"><div id="adminProductTable" class="admin-table-wrap"></div></div><div class="admin-card hidden" id="productEditor"><div class="card-title-row"><h3 id="productEditorTitle">Nuevo producto</h3><button class="text-link" id="cancelProductEdit">Cancelar ×</button></div><form id="productForm" class="form-grid"><input type="hidden" name="id"><label>Nombre<input name="name" required maxlength="160"></label><label>Categoría<input name="category" required maxlength="80" placeholder="Arepas, Repostería…"></label><label>Precio (COP)<input name="price" type="number" min="0" step="50" required></label><label>Unidades en stock (opcional)<input name="stock" type="number" min="0" step="1" placeholder="Vacío = sin control de stock"></label><label class="span-2">Descripción<textarea name="description" rows="2" maxlength="3000"></textarea></label><label class="span-2">Foto del producto<input name="image_file" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG o WebP; máximo 5 MB.</small></label><label class="span-2">Ruta de imagen<input name="image_url" maxlength="500" placeholder="/assets/arepas.jpg"></label><label class="check-label"><input type="checkbox" name="featured"> Destacar en la portada</label><label class="check-label"><input type="checkbox" name="active" checked> Producto visible</label><div class="span-2"><button class="btn btn-primary" type="submit">Guardar producto</button></div></form></div></div>
+<div id="adminOrders" class="admin-pane hidden"><div class="admin-page-title"><div><span class="eyebrow">VENTAS</span><h1>Pedidos</h1><p>Revisa detalles y actualiza el estado de cada pedido.</p></div><button class="btn btn-outline" id="refreshOrders">Actualizar ↻</button></div><div class="admin-card"><div class="filter-row"><label>Filtrar por estado<select id="orderStatusFilter"><option value="">Todos</option><option value="pending">Pendiente</option><option value="confirmed">Confirmado</option><option value="preparing">Preparando</option><option value="ready">Listo</option><option value="delivered">Entregado</option><option value="cancelled">Cancelado</option></select></label></div><div id="adminOrderTable" class="admin-table-wrap"></div></div></div>
+<div id="adminDelivery" class="admin-pane hidden"><div class="admin-page-title"><div><span class="eyebrow">LOGÍSTICA</span><h1>Zonas de entrega</h1><p>Configura tarifas y tiempos estimados. Estos datos se mostrarán en la tienda.</p></div><button class="btn btn-outline" id="refreshZones">Actualizar ↻</button></div><div class="admin-card"><div id="adminZoneList"></div><p class="form-legal">Si la tarifa queda vacía, el sistema muestra “por confirmar” y no presenta un total definitivo.</p></div></div>
+<div id="adminSettings" class="admin-pane hidden"><div class="admin-page-title"><div><span class="eyebrow">PRESENCIA DE MARCA</span><h1>Datos del negocio</h1><p>Actualiza la información pública de AGUI.</p></div></div><div class="admin-card"><form id="settingsForm" class="form-grid"><label class="span-2">Nombre del negocio<input name="business_name" maxlength="254" required></label><label class="span-2">Lema<input name="tagline" maxlength="254"></label><label>Teléfono<input name="business_phone" maxlength="254"></label><label>WhatsApp (solo dígitos con indicativo)<input name="business_whatsapp" maxlength="30" placeholder="573001112233"></label><label class="span-2">Correo de contacto<input name="business_email" type="email" maxlength="254"></label><label class="span-2">Dirección / cobertura<input name="business_address" maxlength="254"></label><label class="span-2">Mensaje de pedidos<textarea name="order_notice" rows="3" maxlength="1000"></textarea></label><div class="span-2"><button class="btn btn-primary" type="submit">Guardar datos</button></div></form><div class="settings-note"><b>Pagos en línea:</b> Wompi, Mercado Pago y ePayco se deben activar después de configurar las credenciales comerciales. La tienda no recoge datos de tarjetas ni simula cobros reales.</div></div></div>
+</section></div></div>
+</body>
+</html>
