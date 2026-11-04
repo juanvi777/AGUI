@@ -18,6 +18,7 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const BUSINESS_DEFAULTS = Object.freeze({ address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia', phone: '3122405580', whatsapp: '573122405580' });
 const DB_NAME = process.env.DB_NAME || 'agui_store';
 const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 const requireGoogle = String(process.env.REQUIRE_GOOGLE_LOGIN || 'false').toLowerCase() === 'true';
@@ -123,7 +124,7 @@ function slugify(value) {
 }
 function money(v) { return Number(Number(v || 0).toFixed(2)); }
 function whatsappUrl(message, targetNumber) {
-  const digits = String(targetNumber ?? process.env.BUSINESS_WHATSAPP ?? '').replace(/\D/g, '');
+  const digits = String(targetNumber ?? process.env.BUSINESS_WHATSAPP ?? BUSINESS_DEFAULTS.whatsapp).replace(/\D/g, '');
   const base = digits ? `https://wa.me/${digits}` : 'https://wa.me/';
   return `${base}?text=${encodeURIComponent(message)}`;
 }
@@ -174,8 +175,9 @@ app.get('/api/config', async (_req, res, next) => {
     res.json({
       businessName: settings.business_name || 'AGUI Repostería y Arepas',
       tagline: settings.tagline || 'El mejor sabor, en cada bocado.',
-      address: settings.business_address || 'Vegachí, Antioquia, Colombia',
-      phone: settings.business_phone || '', whatsapp: settings.business_whatsapp || '', email: settings.business_email || '',
+      address: (!settings.business_address || settings.business_address === 'Vegachí, Antioquia, Colombia') ? BUSINESS_DEFAULTS.address : settings.business_address,
+      phone: settings.business_phone || BUSINESS_DEFAULTS.phone,
+      whatsapp: settings.business_whatsapp || BUSINESS_DEFAULTS.whatsapp, email: settings.business_email || '',
       orderNotice: settings.order_notice || '', zones,
       payments, googleLoginConfigured: googleConfigured, requireGoogleLogin: requireGoogle,
       adminEmail: process.env.ADMIN_EMAIL || 'guillermo171026@gmail.com'
@@ -494,7 +496,7 @@ app.post('/api/orders', orderLimiter, requireCustomer, async (req, res, next) =>
     const itemLines = cleanItems.map(i => `• ${i.name} x${i.quantity}: $${i.total.toLocaleString('es-CO')}`).join('\n');
     const message = `Hola, AGUI. Quiero confirmar el pedido ${orderNumber}.\n\n${itemLines}\n\nSubtotal: $${subtotal.toLocaleString('es-CO')}\nEnvío: ${shipping === null ? 'por confirmar' : `$${shipping.toLocaleString('es-CO')}`}\nTotal: ${total === null ? 'por confirmar con AGUI' : `$${total.toLocaleString('es-CO')}`}\n\nNombre: ${customerName}\nTeléfono: ${customerPhone}\nZona: ${zoneName}\nDirección: ${address}\nPago: ${payment === 'contraentrega' ? 'Contra entrega' : 'Transferencia bancaria'}${deliveryNotes ? `\nNotas: ${deliveryNotes}` : ''}`;
     const [waRows] = await conn.execute('SELECT setting_value FROM settings WHERE setting_key = ?', ['business_whatsapp']);
-    const configuredWhatsApp = (waRows[0] && waRows[0].setting_value) || process.env.BUSINESS_WHATSAPP || '';
+    const configuredWhatsApp = (waRows[0] && waRows[0].setting_value) || BUSINESS_DEFAULTS.whatsapp;
     res.status(201).json({ ok: true, order_number: orderNumber, subtotal, shipping_cost: shipping, total, whatsapp_url: whatsappUrl(message, configuredWhatsApp), notice: 'Pedido registrado como pendiente. AGUI debe confirmar disponibilidad y entrega por WhatsApp.' });
   } catch (e) {
     try { await conn.rollback(); } catch (_) {}

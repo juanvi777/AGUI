@@ -85,9 +85,9 @@ async function main() {
     const defaultSettings = [
       ['business_name', 'AGUI Repostería y Arepas'],
       ['tagline', 'El mejor sabor, en cada bocado.'],
-      ['business_address', process.env.BUSINESS_ADDRESS || 'Vegachí, Antioquia, Colombia'],
-      ['business_phone', process.env.BUSINESS_PHONE || ''],
-      ['business_whatsapp', process.env.BUSINESS_WHATSAPP || ''],
+      ['business_address', process.env.BUSINESS_ADDRESS || 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia'],
+      ['business_phone', process.env.BUSINESS_PHONE || '3122405580'],
+      ['business_whatsapp', process.env.BUSINESS_WHATSAPP || '573122405580'],
       ['business_email', process.env.BUSINESS_EMAIL || ''],
       ['order_notice', 'Tu pedido se confirmará cuando AGUI verifique disponibilidad y costo de entrega.']
     ];

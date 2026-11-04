@@ -3,6 +3,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value || 0));
+const AGUI_CONTACT = Object.freeze({ phone: '3122405580', whatsapp: '573122405580', address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia' });
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const safeImage = value => /^\/(assets|uploads)\/[a-zA-Z0-9_./-]+$/.test(String(value || '')) ? value : '/assets/cover.jpg';
 const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer' };
@@ -128,7 +129,7 @@ function buyNow(id) {
   if (!state.customer) toast('Inicia sesión o crea tu cuenta para continuar con la compra.');
 }
 function openWhatsApp(message) {
-  const raw = (state.config?.whatsapp || '').replace(/\D/g, '');
+  const raw = (state.config?.whatsapp || AGUI_CONTACT.whatsapp).replace(/\D/g, '');
   const base = raw ? `https://wa.me/${raw}` : 'https://wa.me/';
   window.open(`${base}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
 }
@@ -357,7 +358,10 @@ async function saveZone(id) {
 }
 async function loadAdminSettings() {
   const data = await api('/api/admin/settings'); const form = $('#settingsForm');
-  for (const [key,value] of Object.entries(data)) if (form.elements[key]) form.elements[key].value=value;
+  const defaults = { business_address: AGUI_CONTACT.address, business_phone: AGUI_CONTACT.phone, business_whatsapp: AGUI_CONTACT.whatsapp };
+  if (!data.business_address || data.business_address === 'Vegachí, Antioquia, Colombia') data.business_address = AGUI_CONTACT.address;
+  for (const [key,value] of Object.entries(data)) if (form.elements[key]) form.elements[key].value=value || defaults[key] || '';
+  for (const [key,value] of Object.entries(defaults)) if (form.elements[key] && !form.elements[key].value) form.elements[key].value=value;
 }
 async function saveSettings(event) {
   event.preventDefault(); const data=Object.fromEntries(new FormData(event.currentTarget));
@@ -387,8 +391,8 @@ async function checkoutSubmit(event) {
 }
 
 function initEvents() {
-  $('#menuToggle').addEventListener('click',()=>{const nav=$('#mainNav'); const open=nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded',String(open));});
-  $$('#mainNav a').forEach(a=>a.addEventListener('click',()=>$('#mainNav').classList.remove('open')));
+  $('#menuToggle').addEventListener('click',()=>{const nav=$('#mainNav'); const open=nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded',String(open)); $('#menuToggle').setAttribute('aria-label',open?'Cerrar menú':'Abrir menú');});
+  $$('#mainNav a').forEach(a=>a.addEventListener('click',()=>{ $('#mainNav').classList.remove('open'); $('#menuToggle').setAttribute('aria-expanded','false'); $('#menuToggle').setAttribute('aria-label','Abrir menú'); }));
   $('#productSearch').addEventListener('input',renderProducts);
   $('#categoryChips').addEventListener('click',e=>{const btn=e.target.closest('[data-category]');if(!btn)return;state.currentCategory=btn.dataset.category;renderCategories();renderProducts();});
   document.addEventListener('click', e=>{

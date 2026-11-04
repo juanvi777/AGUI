@@ -1,5 +1,5 @@
-const CACHE_NAME = 'agui-store-static-v3';
-const STATIC_ASSETS = ['/', '/css/styles.css', '/js/app.js', '/manifest.webmanifest', '/assets/logo.png', '/assets/cover.jpg'];
+const CACHE_NAME = 'agui-store-static-v4';
+const STATIC_ASSETS = ['/', '/css/styles.css', '/css/future.css', '/js/app.js', '/manifest.webmanifest', '/assets/logo.png', '/assets/cover.jpg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
 });
