@@ -47,7 +47,7 @@ $dbPassword = Read-SecurePlain 'Contraseña del usuario MySQL (puede quedar vac�
 
 Write-Host ''
 Write-Host 'Cuenta dueña de AGUI' -ForegroundColor Yellow
-$adminEmail = Read-Host 'Correo administrador [guillermo171026@gmail.com]'; if ([string]::IsNullOrWhiteSpace($adminEmail)) { $adminEmail='guillermo171026@gmail.com' }
+$adminEmail = Read-Host 'Correo administrador [g82794849@gmail.com]'; if ([string]::IsNullOrWhiteSpace($adminEmail)) { $adminEmail='g82794849@gmail.com' }
 if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { throw 'El correo administrador no parece válido.' }
 $adminName = Read-Host 'Nombre visible del dueño [Guillermo]'; if ([string]::IsNullOrWhiteSpace($adminName)) { $adminName='Guillermo' }
 $adminPassword = Read-SecurePlain 'Crea una contraseña fuerte para el panel (mínimo 12 caracteres)'
@@ -63,12 +63,10 @@ $phone = Read-Host 'Teléfono de contacto (opcional)'
 $emailPublic = Read-Host 'Correo público de contacto (opcional)'
 
 Write-Host ''
-Write-Host 'Google (opcional): si no tienes credenciales, los clientes pueden crear cuenta con correo y contraseña.' -ForegroundColor Yellow
-$googleId = Read-Host 'Google OAuth Client ID (Enter para configurarlo más adelante)'
-$googleSecret = ''
-if (-not [string]::IsNullOrWhiteSpace($googleId)) { $googleSecret = Read-SecurePlain 'Google OAuth Client Secret' }
-$googleCallback = Read-Host 'URL de callback de Google [http://localhost:3000/auth/google/callback]'; if ([string]::IsNullOrWhiteSpace($googleCallback)) { $googleCallback='http://localhost:3000/auth/google/callback' }
-$requireGoogle = 'false' # Se exige sesión de cliente; Google es opcional porque hay acceso por correo/contraseña
+Write-Host 'Correo de verificación (opcional para instalación local)' -ForegroundColor Yellow
+Write-Host 'Para enviar códigos y enlaces necesitas una cuenta de Resend y un dominio remitente verificado.'
+$resendKey = Read-SecurePlain 'RESEND_API_KEY de Resend (Enter si aún no lo tienes)'
+$mailFrom = Read-Host 'Remitente verificado (ej. AGUI <no-reply@tudominio.com>; Enter para dejarlo pendiente)'
 
 $secret = New-Secret 48
 $lines = @(
@@ -76,7 +74,7 @@ $lines = @(
   "DB_HOST=$(Escape-Env $dbHost)", "DB_PORT=$(Escape-Env $dbPort)", "DB_NAME=$(Escape-Env $dbName)", "DB_USER=$(Escape-Env $dbUser)", "DB_PASSWORD=$(Escape-Env $dbPassword)", '',
   "ADMIN_EMAIL=$(Escape-Env $adminEmail)", "ADMIN_NAME=$(Escape-Env $adminName)", "ADMIN_INITIAL_PASSWORD=$(Escape-Env $adminPassword)", "SESSION_SECRET=$secret", '',
   "BUSINESS_WHATSAPP=$(Escape-Env $whatsapp)", "BUSINESS_PHONE=$(Escape-Env $phone)", "BUSINESS_EMAIL=$(Escape-Env $emailPublic)", 'BUSINESS_ADDRESS=Vegachí, Antioquia, Colombia', '',
-  "GOOGLE_CLIENT_ID=$(Escape-Env $googleId)", "GOOGLE_CLIENT_SECRET=$(Escape-Env $googleSecret)", "GOOGLE_CALLBACK_URL=$(Escape-Env $googleCallback)", "REQUIRE_GOOGLE_LOGIN=$requireGoogle", '',
+  "RESEND_API_KEY=$(Escape-Env $resendKey)", "MAIL_FROM=$(Escape-Env $mailFrom)", '',
   'WOMPI_PUBLIC_KEY=', 'WOMPI_PRIVATE_KEY=', 'MERCADOPAGO_ACCESS_TOKEN=', 'EPAYCO_PUBLIC_KEY=', 'EPAYCO_PRIVATE_KEY='
 )
 $envPath = Join-Path $PSScriptRoot '.env'

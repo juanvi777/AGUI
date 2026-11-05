@@ -120,6 +120,18 @@ CREATE TABLE IF NOT EXISTS customer_addresses (
   INDEX idx_customer_addresses_customer (customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS pending_customer_registrations (
+  email VARCHAR(254) NOT NULL PRIMARY KEY,
+  full_name VARCHAR(160) NOT NULL,
+  code_hash CHAR(64) NULL,
+  expires_at DATETIME NULL,
+  attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  resend_after DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_pending_customer_expiry (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_type ENUM('admin','customer') NOT NULL,

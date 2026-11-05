@@ -210,7 +210,7 @@ input,select,textarea { font-size:16px; }
 .auth-divider { color:#d0b59c; }
 .auth-divider::before,.auth-divider::after { background:rgba(255,189,141,.2); }
 .auth-form input { color:#28150c; }
-.google-setup-note { color:#e5c6a9; background:#392317; border-color:rgba(255,176,116,.24); }
+
 .cart-item { color:#fff0e2; background:#2a1a12; border-color:rgba(255,182,130,.2); }
 .cart-item strong,.cart-subtotal b,.item-total { color:#fff0e2; }
 .cart-item small,.cart-subtotal,.cart-subtotal span { color:#d0b29a; }
@@ -382,7 +382,7 @@ input,select,textarea { font-size:16px; }
 .account-spark { display:grid; place-items:center; width:37px;height:37px; margin:0 auto 7px; border-radius:50%; color:#4a1e09; background:linear-gradient(135deg,#ffd09b,#ff8a43); }
 .post-order-account h4 { margin:5px 0 6px; color:#442515; font:700 20px/1.2 Georgia,serif; }
 .post-order-account p { color:#78533b; font-size:11px; line-height:1.65; margin:0 0 13px; }
-.post-order-account .btn-google { margin:0 auto 7px; border-color:#d7c4b3; }
+.post-order-account 
 .post-order-account>small { display:block; color:#8b705b; font-size:9px; }
 .table-create-form { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:12px; margin-bottom:12px; }
 .table-create-form label,.table-qr-content label { display:flex; flex-direction:column; gap:6px; color:#684c3d; font-size:11px; font-weight:800; }

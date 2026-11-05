@@ -6,7 +6,7 @@ const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', curre
 const AGUI_CONTACT = Object.freeze({ phone: '3122405580', whatsapp: '573122405580', address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia' });
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const safeImage = value => /^\/(assets|uploads)\/[a-zA-Z0-9_./-]+$/.test(String(value || '')) ? value : '/assets/cover.jpg';
-const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], adminTables: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer', customerAddresses: [], customerOrders: [], resetToken: null, adminPasswordResolve: null, tableContext: null, trackingToken: null, trackingTimer: null, adminPollTimer: null, adminSeenOrderIds: null, lastTrackedStatus: null, game: { cells: Array(9).fill(''), over: false } };
+const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], adminTables: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer', customerAddresses: [], customerOrders: [], resetToken: null, verificationEmail: null, turnstileToken: null, turnstileWidgetId: null, turnstileScriptLoading: false, adminPasswordResolve: null, tableContext: null, trackingToken: null, trackingTimer: null, adminPollTimer: null, adminSeenOrderIds: null, lastTrackedStatus: null, game: { cells: Array(9).fill(''), over: false } };
 
 function toast(message, type = 'info') {
   const el = $('#toast'); if (!el) return;
@@ -115,11 +115,11 @@ function addToCart(id) {
 }
 function configureCheckoutMode() {
   const isTable = Boolean(state.tableContext);
-  $('#googleBox').classList.toggle('hidden', isTable || Boolean(state.customer));
+  $('#customerLoginBox').classList.toggle('hidden', isTable || Boolean(state.customer));
   $('#tableOrderBanner').classList.toggle('hidden', !isTable);
   $('#tableOrderLabel').textContent = state.tableContext?.label || 'tu mesa';
   $('#checkoutTitle').textContent = isTable ? `Pedido · ${state.tableContext.label}` : (state.checkoutItems ? 'Comprar producto' : 'Datos de entrega');
-  $('#checkoutDescription').textContent = isTable ? 'Tu pedido llegará directamente a esta mesa.' : 'Para domicilios necesitamos tu cuenta de Google y los datos de entrega.';
+  $('#checkoutDescription').textContent = isTable ? 'Tu pedido llegará directamente a esta mesa.' : 'Para domicilios necesitas una cuenta AGUI con correo verificado y los datos de entrega.';
   const hiddenFields = isTable ? ['phone','email','zone','payment','address','notes'] : [];
   $$('[data-checkout-field]').forEach(label => {
     const hide = hiddenFields.includes(label.dataset.checkoutField);
@@ -141,7 +141,7 @@ function openCheckout() {
   $('#orderSuccess').classList.add('hidden'); $('#checkoutForm').classList.remove('hidden');
   configureCheckoutMode();
   if (!state.tableContext && !state.customer) {
-    renderCustomerAccount(); openOverlay('customerAuthOverlay');
+    renderCustomerAccount(); setCustomerAuthTab('login'); openOverlay('customerAuthOverlay');
   }
 }
 
@@ -168,11 +168,51 @@ function renderCustomerAccount() {
   }
 }
 function setCustomerAuthTab(tab) {
-  $('#customerAuthTitle').textContent = tab === 'register' ? 'Crear cuenta con Google' : 'Inicia sesión';
-  $('#customerAuthDescription').textContent = tab === 'register' ? 'Usa tu cuenta de Google verificada para crear tu perfil AGUI.' : 'Ingresa con tu correo y contraseña o continúa con Google.';
+  const login = tab === 'login';
+  $('#unifiedLoginForm').classList.toggle('hidden', !login);
+  $('#forgotPasswordLink').classList.toggle('hidden', !login);
+  $('#openRegisterForm').closest('.auth-create-account').classList.toggle('hidden', !login);
+  $('#customerRegisterForm').classList.toggle('hidden', tab !== 'register');
+  $('#emailVerificationForm').classList.toggle('hidden', tab !== 'verify');
+  $('#customerAuthTitle').textContent = login ? 'Inicia sesión' : tab === 'register' ? 'Crear cuenta' : 'Verifica tu correo';
+  $('#customerAuthDescription').textContent = login ? 'Ingresa con el correo y la contraseña de tu cuenta AGUI.' : tab === 'register' ? 'Completa tus datos. Te enviaremos un código de confirmación.' : 'Confirma que tienes acceso al correo que registraste.';
+  state.authMode = tab;
+  if (tab === 'register') prepareRegisterTurnstile();
 }
+function prepareRegisterTurnstile() {
+  const siteKey = state.config?.turnstileSiteKey;
+  const host = $('#registerTurnstile');
+  if (!host) return;
+  if (!siteKey) { host.classList.add('hidden'); return; }
+  host.classList.remove('hidden');
+  const render = () => {
+    if (!window.turnstile) return;
+    if (state.turnstileWidgetId !== null) {
+      window.turnstile.reset(state.turnstileWidgetId);
+      state.turnstileToken = null;
+      return;
+    }
+    state.turnstileWidgetId = window.turnstile.render(host, {
+      sitekey: siteKey,
+      callback: token => { state.turnstileToken = token; },
+      'expired-callback': () => { state.turnstileToken = null; },
+      'error-callback': () => { state.turnstileToken = null; }
+    });
+  };
+  if (window.turnstile) { render(); return; }
+  if (state.turnstileScriptLoading) return;
+  state.turnstileScriptLoading = true;
+  const script = document.createElement('script');
+  script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  script.async = true; script.defer = true;
+  script.onload = render;
+  script.onerror = () => { state.turnstileScriptLoading = false; toast('No se pudo cargar la verificación de seguridad. Recarga la página.', 'error'); };
+  document.head.appendChild(script);
+}
+
 function openCustomerAuth() {
   renderCustomerAccount();
+  setCustomerAuthTab('login');
   if (state.customer) loadCustomerPortal().catch(e => toast(e.message));
   openOverlay('customerAuthOverlay');
 }
@@ -194,6 +234,52 @@ async function unifiedLogin(event) {
   } catch (e) { toast(e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = 'Iniciar sesión <span>→</span>'; }
 }
+async function customerRegister(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  data.turnstile_token = state.turnstileToken || '';
+  const button = $('button[type="submit"]', form);
+  button.disabled = true; button.textContent = 'Creando cuenta…';
+  try {
+    const result = await api('/api/auth/customer/register', { method:'POST', body:JSON.stringify(data) });
+    state.verificationEmail = result.email;
+    $('#verificationNotice').textContent = `${result.message} Correo: ${result.email}`;
+    $('#emailVerificationForm').reset();
+    state.turnstileToken = null;
+    setCustomerAuthTab('verify');
+    toast(result.emailSent ? 'Revisa tu correo para continuar.' : result.message, result.emailSent ? 'success' : 'info');
+  } catch (e) { toast(e.message, 'error'); }
+  finally { button.disabled = false; button.innerHTML = 'Continuar y verificar correo <span>→</span>'; if (window.turnstile && state.turnstileWidgetId !== null) window.turnstile.reset(state.turnstileWidgetId); state.turnstileToken = null; }
+}
+
+async function verifyCustomerEmail(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const code = String(new FormData(form).get('code') || '').trim();
+  const button = $('button[type="submit"]', form);
+  if (!state.verificationEmail) return toast('Vuelve a registrar tu correo para solicitar un código.');
+  button.disabled = true; button.textContent = 'Verificando…';
+  try {
+    const data = Object.fromEntries(new FormData(form));
+    const result = await api('/api/auth/customer/verify-email', { method:'POST', body:JSON.stringify({ email:state.verificationEmail, code, password:data.password, confirm_password:data.confirm_password }) });
+    state.verificationEmail = null;
+    form.reset();
+    await finishCustomerAuth(result.customer, `¡Correo verificado! Bienvenido, ${result.customer.full_name}.`);
+  } catch (e) { toast(e.message, 'error'); }
+  finally { button.disabled = false; button.textContent = 'Verificar correo y crear cuenta'; }
+}
+
+async function resendCustomerVerification() {
+  if (!state.verificationEmail) return toast('No hay un correo pendiente de verificación.');
+  const button = $('#resendVerificationButton'); button.disabled = true;
+  try {
+    const result = await api('/api/auth/customer/resend-verification', { method:'POST', body:JSON.stringify({ email:state.verificationEmail }) });
+    toast(result.message, 'success');
+  } catch (e) { toast(e.message, 'error'); }
+  finally { window.setTimeout(() => { button.disabled = false; }, 60000); }
+}
+
 function firstAdminPasswordChange() {
   openOverlay('adminFirstPasswordOverlay');
   return new Promise(resolve => { state.adminPasswordResolve = resolve; });
@@ -251,29 +337,20 @@ async function loadStore() {
     const footerTagline = $('.footer-tagline'); if (footerTagline) footerTagline.textContent = config.tagline || 'El mejor sabor, en cada bocado.';
     renderProducts(); renderCategories(); renderZones(); renderCart();
     renderCustomerAccount();
-    $('#googleLoginModal').classList.remove('hidden');
-    $('#googleRegister').classList.remove('hidden');
-    $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
-    $('#postOrderGoogle').classList.toggle('hidden', !config.googleLoginConfigured);
     if (me.customer) {
-      const box = $('#googleBox');
+      const box = $('#customerLoginBox');
       box.querySelector('b').textContent = `Sesión iniciada: ${me.customer.full_name}`;
       $('#checkoutLoginHint').textContent = 'Tu sesión está activa. Completa teléfono, zona y dirección para registrar el pedido.';
       $('#checkoutLoginTrigger').classList.add('hidden');
-      $('#googleLogin').classList.add('hidden');
-      $('#googleSetupNote').classList.add('hidden');
       const checkout = $('#checkoutForm');
       if (checkout.elements.customer_name && !checkout.elements.customer_name.value) checkout.elements.customer_name.value = me.customer.full_name || '';
       if (checkout.elements.customer_email && !checkout.elements.customer_email.value) checkout.elements.customer_email.value = me.customer.email || '';
       if (checkout.elements.customer_phone && !checkout.elements.customer_phone.value) checkout.elements.customer_phone.value = me.customer.phone || '';
       checkout.classList.remove('login-required-form');
     } else {
-      $('#googleBox').classList.remove('hidden');
-      $('#checkoutLoginHint').textContent = config.requireGoogleLogin ? 'Para domicilios, continúa con Google. Los pedidos desde mesa no necesitan cuenta.' : 'Inicia sesión o crea una cuenta para realizar un domicilio.';
+      $('#customerLoginBox').classList.remove('hidden');
+      $('#checkoutLoginHint').textContent = 'Para domicilios necesitas iniciar sesión con una cuenta cuyo correo esté verificado. Los pedidos desde mesa no requieren cuenta.';
       $('#checkoutLoginTrigger').classList.remove('hidden');
-      $('#googleLogin').classList.toggle('hidden', !config.googleLoginConfigured);
-      $('#googleSetupNote').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
-      $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
       $('#checkoutForm').classList.add('login-required-form');
     }
     if (state.tableContext) configureCheckoutMode();
@@ -449,8 +526,7 @@ async function checkoutSubmit(event) {
   if (!purchaseItems.length) return toast('Selecciona al menos un producto antes de continuar.');
   const isTable = Boolean(state.tableContext);
   if (!isTable && !state.customer) {
-    if (state.config?.requireGoogleLogin) toast('Inicia sesión con Google para realizar un domicilio.');
-    $('#googleBox').classList.remove('hidden'); openOverlay('customerAuthOverlay'); return;
+    $('#customerLoginBox').classList.remove('hidden'); openCustomerAuth(); return;
   }
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form));
@@ -627,6 +703,13 @@ function initEvents() {
   $('#customerAccount').addEventListener('click',openCustomerAuth);
   $('#checkoutLoginTrigger').addEventListener('click',openCustomerAuth);
   $('#unifiedLoginForm').addEventListener('submit',unifiedLogin);
+  $('#customerRegisterForm').addEventListener('submit',customerRegister);
+  $('#emailVerificationForm').addEventListener('submit',verifyCustomerEmail);
+  $('#openRegisterForm').addEventListener('click',()=>setCustomerAuthTab('register'));
+  $('#openLoginForm').addEventListener('click',()=>setCustomerAuthTab('login'));
+  $('#resendVerificationButton').addEventListener('click',resendCustomerVerification);
+  $('#changeVerificationEmail').addEventListener('click',()=>{state.verificationEmail=null;setCustomerAuthTab('register');});
+  $('#postOrderRegister').addEventListener('click',()=>{openCustomerAuth();setCustomerAuthTab('register');});
   $('#customerProfileForm').addEventListener('submit',saveCustomerProfile);
   $('#customerAddressForm').addEventListener('submit',saveCustomerAddress);
   $('#customerAddressList').addEventListener('click',e=>{const b=e.target.closest('[data-address-delete],[data-address-default]');if(b)handleCustomerAddressAction(b);});
@@ -652,7 +735,6 @@ function initEvents() {
   $('#orderStatusFilter').addEventListener('change',()=>loadAdminOrders().catch(e=>toast(e.message)));
   $('#adminOrderTable').addEventListener('change',e=>{const el=e.target.closest('[data-order-status]');if(el)updateOrderStatus(Number(el.dataset.orderStatus),el.value);});
   $('#adminOrderTable').addEventListener('click',e=>{const el=e.target.closest('[data-order-status]');if(el)el.dataset.previous=el.value;});
-  ['googleLogin','googleLoginModal','googleRegister','postOrderGoogle'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('click',e=>{if(!state.config?.googleLoginConfigured){e.preventDefault();toast('El acceso con Google aún no está configurado por AGUI.','error');}});});
   $$('.overlay').forEach(overlay=>overlay.addEventListener('click',e=>{if(e.target===overlay){if(overlay.id==='actionConfirmOverlay')finishConfirmation(false);else if(overlay.id!=='adminFirstPasswordOverlay')overlay.classList.add('hidden');}}));
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('#actionConfirmOverlay').classList.contains('hidden'))finishConfirmation(false);$$('.overlay').forEach(o=>{if(o.id!=='adminFirstPasswordOverlay')o.classList.add('hidden');});}});
 }
@@ -662,12 +744,6 @@ async function boot() {
   await loadTableFromQr();
   await loadStore();
   const params=new URLSearchParams(location.search);
-  if(params.has('notice')) {
-    const notices={google_config:'El acceso con Google necesita credenciales de configuración.',google_failed:'No se pudo iniciar sesión con Google. Inténtalo de nuevo.'};
-    toast(notices[params.get('notice')] || ''); history.replaceState({},'',location.pathname+location.hash);
-  }
-  if(params.get('login')==='ok') { toast('Iniciaste sesión con Google.'); history.replaceState({},'',location.pathname+location.hash); }
-  if(params.get('login')==='admin') { toast('Acceso de administrador verificado con Google.','success'); history.replaceState({},'',location.pathname+location.hash); await loadStore(); }
   if(params.has('reset')) { state.resetToken=params.get('reset'); $('#forgotPasswordForm').classList.add('hidden'); $('#resetPasswordForm').classList.remove('hidden'); openOverlay('passwordResetOverlay'); }
   if (state.tableContext) { configureCheckoutMode(); $('#cartOpen').setAttribute('aria-label', `Carrito · ${state.tableContext.label}`); }
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});

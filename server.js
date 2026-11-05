@@ -13,15 +13,12 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const sharp = require('sharp');
 const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const BUSINESS_DEFAULTS = Object.freeze({ address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia', phone: '3122405580', whatsapp: '573122405580' });
 const DB_NAME = process.env.DB_NAME || 'agui_store';
-const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-const requireGoogle = true; // Los clientes deben autenticarse con Google; los pedidos QR de mesa son la única excepción.
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || process.env.SESSION_SECRET.includes('CAMBIA_')) {
   console.error('Configura SESSION_SECRET en .env con al menos 32 caracteres aleatorios.');
@@ -59,8 +56,8 @@ app.disable('x-powered-by');
 app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
 app.use(helmet({
   contentSecurityPolicy: { directives: {
-    defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
-    imgSrc: ["'self'", 'data:', 'blob:'], connectSrc: ["'self'"], fontSrc: ["'self'"],
+    defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://challenges.cloudflare.com'], styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", 'data:', 'blob:'], connectSrc: ["'self'", 'https://challenges.cloudflare.com'], frameSrc: ['https://challenges.cloudflare.com'], fontSrc: ["'self'"],
     manifestSrc: ["'self'"], objectSrc: ["'none'"], baseUri: ["'self'"], frameAncestors: ["'none'"]
   } }, crossOriginEmbedderPolicy: false
 }));
@@ -87,35 +84,14 @@ app.use((req, _res, next) => {
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const [rows] = await pool.execute('SELECT id, email, full_name, phone, google_id FROM customers WHERE id = ?', [id]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? AND email_verified_at IS NOT NULL', [id]);
     done(null, rows[0] || false);
   } catch (e) { done(e); }
 });
-if (googleConfigured) {
-  passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL || `${BASE_URL}/auth/google/callback`
-  }, async (_accessToken, _refreshToken, profile, done) => {
-    try {
-      const emailEntry = (profile.emails || []).find(e => e.value);
-      if (!emailEntry || !profile._json || profile._json.email_verified !== true) return done(null, false, { message: 'Google debe confirmar que el correo pertenece al cliente.' });
-      const email = emailEntry.value.toLowerCase();
-      const fullName = profile.displayName || email.split('@')[0];
-      const [adminIdentity] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [email]);
-      if (adminIdentity.length) return done(null, { id: null, email, full_name: fullName, google_id: profile.id, verified_google_identity: true });
-      await pool.execute(
-        `INSERT INTO customers (google_id, email, full_name, email_verified_at) VALUES (?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE google_id = VALUES(google_id), full_name = VALUES(full_name), email_verified_at = COALESCE(email_verified_at, NOW())`,
-        [profile.id, email, fullName]
-      );
-      const [rows] = await pool.execute('SELECT id, email, full_name, phone, google_id FROM customers WHERE email = ?', [email]);
-      done(null, rows[0]);
-    } catch (e) { done(e); }
-  }));
-}
+// AGUI usa registro por correo y contraseña. Passport mantiene las sesiones locales de clientes.
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' } });
+const verificationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Has realizado demasiadas solicitudes de verificación. Espera 15 minutos e inténtalo de nuevo.' } });
 const orderLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Se recibieron muchas solicitudes. Espera antes de intentar de nuevo.' } });
 
 function cleanText(value, max = 255) {
@@ -143,6 +119,7 @@ function requireAdmin(req, res, next) {
 }
 function requireCustomer(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión o crear una cuenta de cliente antes de realizar el pedido.' });
+  if (!req.user.email_verified_at) return res.status(403).json({ error: 'Debes verificar tu correo electrónico antes de usar tu cuenta.' });
   next();
 }
 function productPayload(body) {
@@ -182,7 +159,7 @@ app.get('/api/config', async (_req, res, next) => {
       phone: settings.business_phone || BUSINESS_DEFAULTS.phone,
       whatsapp: settings.business_whatsapp || BUSINESS_DEFAULTS.whatsapp, email: settings.business_email || '',
       orderNotice: settings.order_notice || '', zones,
-      payments, googleLoginConfigured: googleConfigured, requireGoogleLogin: requireGoogle
+      payments, customerEmailVerification: true, turnstileSiteKey: (process.env.TURNSTILE_SITE_KEY && process.env.TURNSTILE_SECRET_KEY) ? process.env.TURNSTILE_SITE_KEY : ''
     });
   } catch (e) { next(e); }
 });
@@ -210,39 +187,11 @@ app.get('/api/me', async (req, res, next) => {
         admin = { id: rows[0].id, email: rows[0].email, mustChangePassword: req.session.adminMustChangePassword };
       } else { req.session.adminId = null; req.session.adminEmail = null; }
     }
-    res.json({ customer: req.user || null, admin, googleLoginConfigured: googleConfigured, requireGoogleLogin: requireGoogle });
+    res.json({ customer: req.user || null, admin });
   } catch (e) { next(e); }
 });
 
-app.get('/auth/google', (req, res, next) => {
-  if (!googleConfigured) return res.redirect('/?notice=google_config');
-  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account' })(req, res, next);
-});
-app.get('/auth/google/callback', (req, res, next) => {
-  if (!googleConfigured) return res.redirect('/?notice=google_config');
-  passport.authenticate('google', { failureRedirect: '/?notice=google_failed' }, async (err, user) => {
-    if (err || !user) return res.redirect('/?notice=google_failed');
-    try {
-      // El correo verificado determina el rol; nunca existe un selector público de dueño.
-      const [admins] = await pool.execute('SELECT id, email, password_change_available FROM admins WHERE email = ? AND active = 1 LIMIT 1', [String(user.email).toLowerCase()]);
-      if (admins.length) {
-        return req.session.regenerate(regErr => {
-          if (regErr) return next(regErr);
-          req.session.adminId = admins[0].id;
-          req.session.adminEmail = admins[0].email;
-          req.session.adminLastAction = Date.now();
-          req.session.adminMustChangePassword = Number(admins[0].password_change_available) === 1;
-          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/?login=admin'));
-        });
-      }
-      req.logIn(user, loginErr => {
-        if (loginErr) return next(loginErr);
-        req.session.customerLastAction = Date.now();
-        req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/?login=ok'));
-      });
-    } catch (e) { next(e); }
-  })(req, res, next);
-});
+// No se exponen rutas de autenticación con Google en esta versión.
 app.post('/api/auth/logout', (req, res) => req.logout(err => {
   if (err) return res.status(500).json({ error: 'No se pudo cerrar sesión.' });
   req.session.adminId = null; req.session.adminEmail = null;
@@ -262,37 +211,206 @@ function finishCustomerLogin(req, res, next, customer) {
   });
 }
 
-app.post('/api/auth/customer/register', loginLimiter, async (req, res, next) => {
-  if (requireGoogle) return res.status(403).json({ error: 'Para crear una cuenta de cliente debes continuar con Google.' });
+function verificationCodeHash(email, code) {
+  return crypto.createHmac('sha256', process.env.SESSION_SECRET).update(`${email}:${code}`).digest('hex');
+}
+
+async function sendResendEmail({ to, subject, html, text }) {
+  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) return { ok: false, reason: 'not_configured' };
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: process.env.MAIL_FROM, to: [to], subject, html, text }),
+      signal: AbortSignal.timeout(12000)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error('Resend rechazó un envío de correo AGUI. HTTP', response.status, payload.message || payload.name || 'Sin detalle');
+      return { ok: false, reason: 'provider_error' };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error('No fue posible conectar con el servicio de correo AGUI:', error.message);
+    return { ok: false, reason: 'network_error' };
+  }
+}
+
+async function verifyTurnstileToken(token, remoteIp) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return { ok: true, enabled: false };
+  if (!token) return { ok: false, enabled: true };
+  try {
+    const body = new URLSearchParams({ secret, response: token });
+    if (remoteIp) body.set('remoteip', remoteIp);
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
+      signal: AbortSignal.timeout(10000)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true) return { ok: false, enabled: true };
+    if (process.env.NODE_ENV === 'production') {
+      const expectedHost = new URL(BASE_URL).hostname;
+      if (String(result.hostname || '') !== expectedHost) return { ok: false, enabled: true };
+    }
+    return { ok: true, enabled: true };
+  } catch (error) {
+    console.error('No fue posible validar Turnstile:', error.message);
+    return { ok: false, enabled: true };
+  }
+}
+
+async function createAndSendVerificationCode(email, fullName) {
+  const normalizedEmail = cleanText(email, 254).toLowerCase();
+  const name = cleanText(fullName, 160);
+  const [recent] = await pool.execute(
+    'SELECT email FROM pending_customer_registrations WHERE email = ? AND resend_after > NOW() LIMIT 1',
+    [normalizedEmail]
+  );
+  if (recent.length) return { ok: false, reason: 'cooldown' };
+
+  // Aún se conserva la solicitud pendiente, pero nunca se guarda una contraseña
+  // antes de que la persona demuestre que controla el correo.
+  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
+    await pool.execute(`INSERT INTO pending_customer_registrations
+      (email, full_name, code_hash, expires_at, attempts, resend_after)
+      VALUES (?, ?, NULL, DATE_SUB(NOW(), INTERVAL 1 SECOND), 0, NOW())
+      ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), code_hash = NULL,
+      expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND), attempts = 0, resend_after = NOW()`,
+      [normalizedEmail, name]);
+    return { ok: false, reason: 'not_configured' };
+  }
+
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const codeHash = verificationCodeHash(normalizedEmail, code);
+  await pool.execute(`INSERT INTO pending_customer_registrations
+    (email, full_name, code_hash, expires_at, attempts, resend_after)
+    VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), 0, DATE_ADD(NOW(), INTERVAL 60 SECOND))
+    ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), code_hash = VALUES(code_hash),
+    expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE), attempts = 0,
+    resend_after = DATE_ADD(NOW(), INTERVAL 60 SECOND)`,
+    [normalizedEmail, name, codeHash]);
+
+  const sent = await sendResendEmail({
+    to: normalizedEmail,
+    subject: 'Verifica tu correo para AGUI',
+    text: `Tu código de verificación de AGUI es ${code}. Vence en 10 minutos. Si no solicitaste esta cuenta, ignora este mensaje.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#38251b"><h2>Verifica tu correo · AGUI</h2><p>Usa este código para activar tu cuenta. Es válido durante 10 minutos y solo se puede utilizar una vez.</p><div style="display:inline-block;padding:16px 24px;background:#fff2e7;border:1px solid #e8c8ac;border-radius:12px;font-size:30px;font-weight:800;letter-spacing:8px;color:#a94e22">${code}</div><p>Si no solicitaste esta cuenta, ignora este mensaje.</p></div>`
+  });
+  if (!sent.ok) {
+    // Un código que no llegó nunca debe quedar inutilizable.
+    await pool.execute('UPDATE pending_customer_registrations SET code_hash = NULL, expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND) WHERE email = ?', [normalizedEmail]);
+  }
+  return sent;
+}
+
+app.post('/api/auth/customer/register', verificationLimiter, async (req, res, next) => {
   try {
     const fullName = cleanText(req.body.full_name, 160);
     const email = cleanText(req.body.email, 254).toLowerCase();
-    const password = String(req.body.password || '');
     if (fullName.length < 2) return res.status(400).json({ error: 'Escribe tu nombre completo.' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Escribe un correo electrónico válido.' });
-    if (password.length < 8 || password.length > 72) return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 72 caracteres.' });
-    const [existing] = await pool.execute('SELECT id, password_hash FROM customers WHERE email = ? LIMIT 1', [email]);
-    if (existing.length) return res.status(409).json({ error: existing[0].password_hash ? 'Ya existe una cuenta con ese correo. Inicia sesión.' : 'Ese correo ya está asociado a una cuenta de Google. Inicia sesión con Google.' });
+    const captcha = await verifyTurnstileToken(String(req.body.turnstile_token || ''), req.ip);
+    if (!captcha.ok) return res.status(400).json({ error: 'Completa la verificación de seguridad antes de crear la cuenta.' });
+    const [admins] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [email]);
+    if (admins.length) return res.status(409).json({ error: 'Ese correo está reservado para el acceso administrativo.' });
+
+    const [existing] = await pool.execute('SELECT id, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
+    if (existing.length && existing[0].email_verified_at) {
+      return res.status(409).json({ error: 'Ya existe una cuenta verificada con ese correo. Inicia sesión o usa “¿Olvidaste tu contraseña?”.' });
+    }
+
+    const delivery = await createAndSendVerificationCode(email, fullName);
+    if (delivery.reason === 'cooldown') {
+      return res.status(429).json({ error: 'Ya enviamos un código hace poco. Revisa tu correo o espera un minuto para solicitar otro.', email });
+    }
+    res.status(201).json({
+      ok: true, email, verificationRequired: true, emailSent: delivery.ok,
+      message: delivery.ok
+        ? 'Te enviamos un código de 6 dígitos. Revisa tu bandeja de entrada y la carpeta de correo no deseado.'
+        : 'No pudimos enviar el código todavía. Revisa la configuración del correo o intenta reenviarlo más tarde.'
+    });
+  } catch (e) { next(e); }
+});
+
+app.post('/api/auth/customer/resend-verification', verificationLimiter, async (req, res, next) => {
+  try {
+    const email = cleanText(req.body.email, 254).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Escribe un correo válido.' });
+    const [rows] = await pool.execute('SELECT email, full_name FROM pending_customer_registrations WHERE email = ? LIMIT 1', [email]);
+    if (!rows.length) {
+      return res.json({ ok: true, message: 'Si existe una solicitud pendiente con ese correo, podrás continuar con la verificación.' });
+    }
+    const result = await createAndSendVerificationCode(rows[0].email, rows[0].full_name);
+    if (result.reason === 'cooldown') return res.status(429).json({ error: 'Espera un minuto antes de solicitar otro código.' });
+    if (!result.ok) return res.status(503).json({ error: 'AGUI no pudo enviar el correo. El servicio de correo debe estar configurado correctamente.' });
+    res.json({ ok: true, message: 'Te enviamos un nuevo código. Revisa tu correo.' });
+  } catch (e) { next(e); }
+});
+
+app.post('/api/auth/customer/verify-email', verificationLimiter, async (req, res, next) => {
+  const email = cleanText(req.body.email, 254).toLowerCase();
+  const code = String(req.body.code || '').trim();
+  const password = String(req.body.password || '');
+  const confirm = String(req.body.confirm_password || '');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'El correo no es válido.' });
+  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Escribe el código de 6 dígitos.' });
+  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 72 caracteres.' });
+  if (password !== confirm) return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
+
+  let conn;
+  let customer = null;
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    const [pendingRows] = await conn.execute(
+      'SELECT email, full_name, code_hash, attempts FROM pending_customer_registrations WHERE email = ? AND expires_at > NOW() LIMIT 1 FOR UPDATE',
+      [email]
+    );
+    if (!pendingRows.length || !pendingRows[0].code_hash || Number(pendingRows[0].attempts) >= 5) {
+      await conn.rollback();
+      return res.status(400).json({ error: 'El código no es válido o ya venció. Solicita uno nuevo.' });
+    }
+    const pending = pendingRows[0];
+    const expected = Buffer.from(pending.code_hash, 'hex');
+    const provided = Buffer.from(verificationCodeHash(email, code), 'hex');
+    const match = expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+    if (!match) {
+      await conn.execute('UPDATE pending_customer_registrations SET attempts = attempts + 1 WHERE email = ?', [email]);
+      await conn.commit();
+      return res.status(400).json({ error: Number(pending.attempts) >= 4 ? 'Se agotaron los intentos. Solicita un código nuevo.' : 'El código ingresado es incorrecto.' });
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
-    const [result] = await pool.execute('INSERT INTO customers (email, full_name, password_hash) VALUES (?, ?, ?)', [email, fullName, passwordHash]);
-    const customer = { id: result.insertId, email, full_name: fullName, phone: null };
-    finishCustomerLogin(req, res, next, customer);
+    const [existing] = await conn.execute('SELECT id FROM customers WHERE email = ? LIMIT 1 FOR UPDATE', [email]);
+    if (existing.length) {
+      await conn.execute('UPDATE customers SET full_name = ?, password_hash = ?, email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = ?', [pending.full_name, passwordHash, existing[0].id]);
+      const [verifiedRows] = await conn.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? LIMIT 1', [existing[0].id]);
+      customer = verifiedRows[0];
+    } else {
+      const [created] = await conn.execute('INSERT INTO customers (email, full_name, password_hash, email_verified_at) VALUES (?, ?, ?, NOW())', [email, pending.full_name, passwordHash]);
+      const [verifiedRows] = await conn.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? LIMIT 1', [created.insertId]);
+      customer = verifiedRows[0];
+    }
+    await conn.execute('DELETE FROM pending_customer_registrations WHERE email = ?', [email]);
+    await conn.commit();
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Ya existe una cuenta con ese correo. Inicia sesión.' });
-    next(e);
-  }
+    if (conn) { try { await conn.rollback(); } catch (_) {} }
+    return next(e);
+  } finally { if (conn) conn.release(); }
+  finishCustomerLogin(req, res, next, customer);
 });
 
 app.post('/api/auth/customer/login', loginLimiter, async (req, res, next) => {
-  if (requireGoogle) return res.status(403).json({ error: 'El acceso de clientes se realiza con Google. Usa el botón Continuar con Google.' });
   try {
     const email = cleanText(req.body.email, 254).toLowerCase();
     const password = String(req.body.password || '');
     if (!email || !password) return res.status(400).json({ error: 'Escribe tu correo y contraseña.' });
-    const [rows] = await pool.execute('SELECT id, email, full_name, phone, password_hash FROM customers WHERE email = ? LIMIT 1', [email]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
     const customer = rows[0];
     const matched = customer && customer.password_hash && await bcrypt.compare(password, customer.password_hash);
-    if (!matched) return res.status(401).json({ error: 'Correo o contraseña incorrectos. Si creaste la cuenta con Google, entra con Google.' });
+    if (!matched) return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
+    if (!customer.email_verified_at) return res.status(403).json({ error: 'Primero verifica tu correo. Solicita o reenvía el código de verificación.' });
     finishCustomerLogin(req, res, next, customer);
   } catch (e) { next(e); }
 });
@@ -329,10 +447,11 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
         });
       });
     }
-    const [customers] = await pool.execute('SELECT id, email, full_name, phone, password_hash, google_id FROM customers WHERE email = ? LIMIT 1', [email]);
+    const [customers] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
     const customer = customers[0];
     const matched = customer && customer.password_hash && await bcrypt.compare(password, customer.password_hash);
-    if (!matched) return res.status(401).json({ error: 'Correo o contraseña incorrectos. Si creaste tu cuenta con Google, utiliza Continuar con Google.' });
+    if (!matched) return res.status(401).json({ error: customer && !customer.password_hash ? 'Esta cuenta necesita una contraseña. Usa “¿Olvidaste tu contraseña?” para crearla.' : 'Correo o contraseña incorrectos.' });
+    if (!customer.email_verified_at) return res.status(403).json({ error: 'Primero verifica tu correo. Solicita o reenvía el código de verificación.' });
     finishCustomerLogin(req, res, next, customer);
   } catch (e) { next(e); }
 });
@@ -353,13 +472,12 @@ app.post('/api/auth/admin/first-password-change', requireAdmin, async (req, res,
 });
 
 async function sendRecoveryEmail(to, link) {
-  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) return false;
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: process.env.MAIL_FROM, to: [to], subject: 'Recupera tu acceso a AGUI', html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#38251b"><h2>Recuperación de contraseña · AGUI</h2><p>Solicitaste cambiar tu contraseña. El enlace es válido durante 30 minutos y solo se puede usar una vez.</p><p><a href="${link}" style="display:inline-block;padding:14px 22px;background:#a94e22;color:#fff;text-decoration:none;border-radius:8px">Crear nueva contraseña</a></p><p>Si no solicitaste este cambio, ignora este mensaje.</p></div>` })
+  return sendResendEmail({
+    to,
+    subject: 'Recupera tu acceso a AGUI',
+    text: `Solicitaste cambiar tu contraseña. Abre este enlace, válido durante 30 minutos y de un solo uso: ${link}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#38251b"><h2>Recuperación de contraseña · AGUI</h2><p>Solicitaste cambiar tu contraseña. El enlace es válido durante 30 minutos y solo se puede usar una vez.</p><p><a href="${link}" style="display:inline-block;padding:14px 22px;background:#a94e22;color:#fff;text-decoration:none;border-radius:8px">Crear nueva contraseña</a></p><p>Si no solicitaste este cambio, ignora este mensaje.</p></div>`
   });
-  return response.ok;
 }
 app.post('/api/auth/forgot-password', loginLimiter, async (req, res, next) => {
   try {
@@ -374,7 +492,7 @@ app.post('/api/auth/forgot-password', loginLimiter, async (req, res, next) => {
       await pool.execute('INSERT INTO password_reset_tokens (user_type, user_id, token_hash, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [record.kind, record.id, tokenHash]);
       const link = `${BASE_URL}/?reset=${raw}`;
       const sent = await sendRecoveryEmail(email, link);
-      if (!sent) console.error('No se pudo enviar correo de recuperación a', email);
+      if (!sent.ok) console.error('No se pudo enviar el correo de recuperación. Motivo:', sent.reason);
     }
     res.json({ ok: true, message: 'Si el correo está registrado y el servicio de correo está configurado, recibirás un enlace de recuperación.' });
   } catch (e) { next(e); }
@@ -698,8 +816,8 @@ app.post('/api/orders', orderLimiter, async (req, res, next) => {
       if (!tableRows.length) return res.status(400).json({ error: 'Esta mesa ya no está disponible. Solicita ayuda al personal.' });
       table = tableRows[0];
     } else {
-      if (!req.user) return res.status(401).json({ error: 'Para domicilios debes iniciar sesión con Google.' });
-      if (requireGoogle && !req.user.google_id) return res.status(403).json({ error: 'Para realizar domicilios debes ingresar con una cuenta de Google verificada.' });
+      if (!req.user) return res.status(401).json({ error: 'Para domicilios debes iniciar sesión con una cuenta AGUI.' });
+      if (!req.user.email_verified_at) return res.status(403).json({ error: 'Para realizar domicilios primero debes verificar tu correo electrónico.' });
     }
 
     const customerName = cleanText(orderType === 'table' ? body.customer_name : (req.user && req.user.full_name), 160);
@@ -859,6 +977,20 @@ async function start() {
       CONSTRAINT fk_customer_addresses_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
       INDEX idx_customer_addresses_customer (customer_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS pending_customer_registrations (
+      email VARCHAR(254) NOT NULL PRIMARY KEY,
+      full_name VARCHAR(160) NOT NULL,
+      code_hash CHAR(64) NULL,
+      expires_at DATETIME NULL,
+      attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+      resend_after DATETIME NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pending_customer_expiry (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    // Las cuentas que ya usaban Google habían confirmado su dirección con ese proveedor.
+    // Se conserva esa validación histórica para que puedan recuperar su contraseña por correo.
+    await pool.query("UPDATE customers SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE google_id IS NOT NULL AND google_id <> '' AND email_verified_at IS NULL");
     await pool.query(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, user_type ENUM('admin','customer') NOT NULL,
       user_id BIGINT UNSIGNED NOT NULL, token_hash CHAR(64) NOT NULL UNIQUE, expires_at DATETIME NOT NULL,

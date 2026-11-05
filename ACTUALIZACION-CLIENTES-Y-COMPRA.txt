@@ -6,7 +6,7 @@ CAMBIOS
 - Se agregó “Iniciar sesión” en la cabecera. La cabecera muestra el primer nombre del cliente cuando su sesión está activa.
 - Los clientes pueden crear una cuenta con nombre, correo y contraseña, o iniciar sesión.
 - Todos los pedidos requieren una sesión de cliente y quedan relacionados con su cuenta.
-- Se conserva Google como alternativa opcional. Google no funciona hasta que se configuren sus credenciales OAuth reales.
+- Desde AGUI 1.6 se eliminó Google. El cliente registra su nombre y correo, confirma un código enviado a esa dirección y después crea su contraseña.
 - La actualización de la tabla customers se aplica automáticamente al arrancar el servidor y no borra los datos anteriores.
 
 ACTUALIZACIÓN EN WINDOWS

@@ -1,0 +1,22 @@
+AGUI 1.6 · REGISTRO CON CORREO VERIFICADO
+
+- Se retiró la autenticación y los botones de Google.
+- Se habilitó el registro tradicional con nombre y correo; la contraseña se crea después de confirmar el código.
+- Cada cuenta nueva debe verificar su correo mediante un código de 6 dígitos.
+- Los códigos vencen en 10 minutos, son de un solo uso y permiten máximo 5 intentos.
+- Solo se permite reenviar un código cada 60 segundos.
+- Se aplican límites de solicitudes por IP para registro, reenvío y verificación.
+- Las cuentas no verificadas no pueden iniciar sesión ni usar funciones privadas o domicilios.
+- Los pedidos desde QR de mesa siguen funcionando sin crear cuenta.
+- Las cuentas antiguas que se crearon con Google conservan su correo como verificado; pueden crear una contraseña nueva desde “¿Olvidaste tu contraseña?” cuando Resend esté configurado.
+- Se agregó una tabla de registros pendientes mediante migración automática aditiva. La contraseña no se almacena hasta confirmar el código del correo. No se eliminan clientes, pedidos, productos ni otras tablas.
+
+CONFIGURACIÓN DE CORREO EN RAILWAY
+
+Configura estas variables en el servicio AGUI:
+  RESEND_API_KEY=re_xxxxxxxxx
+  MAIL_FROM=AGUI <no-reply@tu-dominio-verificado.com>
+
+El dominio usado en MAIL_FROM debe estar validado en Resend. El correo no se enviará hasta que estas dos variables sean correctas y el servidor de Resend acepte el remitente. No pongas la clave dentro del código ni la compartas.
+
+No es necesario ejecutar setup:db en producción. Al iniciar AGUI 1.6 se crea la tabla de registros pendientes si no existe.
