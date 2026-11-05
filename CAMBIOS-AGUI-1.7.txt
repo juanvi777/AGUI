@@ -1,0 +1,20 @@
+AGUI 1.7 · CUENTAS LOCALES Y AUTORIZACIÓN MANUAL
+
+- Se elimina la dependencia de Google OAuth y del envío de correo por Resend para crear cuentas, autorizar domicilios y recuperar contraseñas.
+- El cliente se registra con nombre, correo y contraseña; la cuenta queda creada y puede iniciar sesión de inmediato.
+- El perfil incluye una sección de autorización para domicilios, con solicitud interna a Guillermo y alternativa para avisarle por WhatsApp.
+- Las solicitudes quedan guardadas en MySQL y aparecen en la nueva pestaña “Solicitudes” del panel del dueño. El panel consulta nuevas solicitudes cada 18 segundos mientras Guillermo mantiene abierta su sesión administrativa.
+- Guillermo puede aprobar o rechazar una solicitud de domicilio. El servidor exige autorización vigente antes de aceptar un pedido a domicilio.
+- Los pedidos desde mesa mediante QR siguen funcionando sin registro.
+- La recuperación de contraseña crea una solicitud para Guillermo. Al aprobarla, AGUI genera un enlace de un solo uso con vigencia de 30 minutos, que el administrador debe copiar desde el panel y compartir manualmente por WhatsApp; el enlace se muestra una sola vez, dura 30 minutos y no puede reutilizarse.
+- La cuenta de Guillermo dispone de dos cambios de contraseña sin verificación a partir de esta versión mientras conserve una sesión administrativa activa. Si tiene pendiente el cambio inicial, ese cambio cuenta como el primero; el segundo se realiza desde “Datos del negocio”.
+- Se conserva la verificación histórica de cuentas anteriores que ya tenían email_verified_at.
+- Las migraciones son aditivas e idempotentes. No eliminan ni sustituyen pedidos, clientes, productos, direcciones ni sesiones.
+
+SIN SERVICIO DE CORREO
+
+AGUI 1.7 no necesita configurar RESEND_API_KEY, MAIL_FROM ni Google OAuth para estos flujos. WhatsApp se abre con un mensaje preparado; el usuario debe pulsar Enviar dentro de WhatsApp. No se envían mensajes automáticamente sin integrar WhatsApp Business Platform.
+
+PUBLICACIÓN
+
+No ejecutes npm run setup:db en producción. Publica la carpeta del proyecto y deja que server.js aplique las migraciones al iniciar.

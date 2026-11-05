@@ -1,3 +1,5 @@
+HISTÓRICO: esta nota describe una versión anterior. En AGUI 1.7 el acceso con Google y la verificación por correo fueron reemplazados por autorización manual de domicilios y recuperación mediante Guillermo.
+
 AGUI REPOSTERIA Y AREPAS — ACTUALIZACION 1.3
 
 INCLUIDO

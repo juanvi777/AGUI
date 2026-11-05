@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS admins (
   password_hash VARCHAR(255) NOT NULL,
   active TINYINT(1) NOT NULL DEFAULT 1,
   password_change_available TINYINT(1) NOT NULL DEFAULT 1,
+  password_changes_without_verification TINYINT UNSIGNED NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS customers (
   full_name VARCHAR(160) NOT NULL,
   username VARCHAR(40) NULL UNIQUE,
   email_verified_at DATETIME NULL,
+  delivery_verified_at DATETIME NULL,
   password_hash VARCHAR(255) NULL,
   phone VARCHAR(30) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -142,4 +144,21 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_password_reset_user (user_type,user_id),
   INDEX idx_password_reset_expiry (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+CREATE TABLE IF NOT EXISTS customer_account_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  request_type ENUM('delivery_verification','password_reset') NOT NULL,
+  email VARCHAR(254) NOT NULL,
+  full_name VARCHAR(160) NOT NULL,
+  phone VARCHAR(30) NULL,
+  status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  processed_by BIGINT UNSIGNED NULL,
+  processed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customer_account_requests_status (status, request_type, created_at),
+  INDEX idx_customer_account_requests_customer (customer_id, request_type, status),
+  CONSTRAINT fk_account_requests_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

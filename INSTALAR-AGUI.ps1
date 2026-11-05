@@ -62,19 +62,12 @@ if ($whatsapp -and $whatsapp -notmatch '^\d{10,15}$') { throw 'Usa solo dígitos
 $phone = Read-Host 'Teléfono de contacto (opcional)'
 $emailPublic = Read-Host 'Correo público de contacto (opcional)'
 
-Write-Host ''
-Write-Host 'Correo de verificación (opcional para instalación local)' -ForegroundColor Yellow
-Write-Host 'Para enviar códigos y enlaces necesitas una cuenta de Resend y un dominio remitente verificado.'
-$resendKey = Read-SecurePlain 'RESEND_API_KEY de Resend (Enter si aún no lo tienes)'
-$mailFrom = Read-Host 'Remitente verificado (ej. AGUI <no-reply@tudominio.com>; Enter para dejarlo pendiente)'
-
 $secret = New-Secret 48
 $lines = @(
   'NODE_ENV=development', 'PORT=3000', 'BASE_URL=http://localhost:3000', '',
   "DB_HOST=$(Escape-Env $dbHost)", "DB_PORT=$(Escape-Env $dbPort)", "DB_NAME=$(Escape-Env $dbName)", "DB_USER=$(Escape-Env $dbUser)", "DB_PASSWORD=$(Escape-Env $dbPassword)", '',
   "ADMIN_EMAIL=$(Escape-Env $adminEmail)", "ADMIN_NAME=$(Escape-Env $adminName)", "ADMIN_INITIAL_PASSWORD=$(Escape-Env $adminPassword)", "SESSION_SECRET=$secret", '',
   "BUSINESS_WHATSAPP=$(Escape-Env $whatsapp)", "BUSINESS_PHONE=$(Escape-Env $phone)", "BUSINESS_EMAIL=$(Escape-Env $emailPublic)", 'BUSINESS_ADDRESS=Vegachí, Antioquia, Colombia', '',
-  "RESEND_API_KEY=$(Escape-Env $resendKey)", "MAIL_FROM=$(Escape-Env $mailFrom)", '',
   'WOMPI_PUBLIC_KEY=', 'WOMPI_PRIVATE_KEY=', 'MERCADOPAGO_ACCESS_TOKEN=', 'EPAYCO_PUBLIC_KEY=', 'EPAYCO_PRIVATE_KEY='
 )
 $envPath = Join-Path $PSScriptRoot '.env'

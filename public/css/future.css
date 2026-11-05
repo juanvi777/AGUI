@@ -446,3 +446,37 @@ input,select,textarea { font-size:16px; }
 .customer-receipt-total{border-top:1px dashed rgba(94,57,34,.25);padding-top:10px;margin-top:10px;font-size:.86rem}
 .customer-receipt-total b{font-size:1rem;color:#8f421e}
 @media(max-width:560px){.customer-address-card{display:block}.customer-address-actions{justify-content:flex-start;margin-top:10px}.customer-order-head{align-items:flex-start;flex-direction:column}}
+
+
+/* AGUI 1.7 · autorizaciones manuales y solicitudes del dueño */
+.customer-verification-panel {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid rgba(192, 112, 48, .25);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255,247,236,.92), rgba(255,255,255,.88));
+}
+.customer-verification-panel.is-verified {
+  border-color: rgba(52, 125, 76, .32);
+  background: linear-gradient(145deg, rgba(238,249,239,.95), rgba(255,255,255,.9));
+}
+.customer-verification-panel>h3 { margin: 0 0 8px; color: #56351f; }
+.customer-verification-panel>p { margin: 0 0 13px; color: #6f5948; }
+.customer-verification-panel>small { display: block; margin-top: 11px; color: #8b7768; line-height: 1.5; }
+.account-verification-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+.account-request-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px,1fr)); gap: 13px; }
+.account-request-card { min-width: 0; padding: 16px; border: 1px solid rgba(116,77,48,.17); border-radius: 15px; background: #fffaf4; }
+.account-request-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px; }
+.account-request-head small { color: #8b7768; font-size: .75rem; }
+.account-request-card h3 { margin: 13px 0 7px; color: #56351f; font-size: 1.03rem; }
+.account-request-card p { margin: 0 0 15px; color: #735c4b; line-height: 1.6; overflow-wrap: anywhere; }
+.account-request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-request-actions .btn { flex: 1 1 145px; }
+.admin-password-card { margin-top: 18px; padding: 18px; border: 1px solid rgba(116,77,48,.14); border-radius: 14px; background: #fffaf4; }
+.admin-password-card>h3 { margin: 0 0 8px; }
+.admin-password-card>small { display: block; margin-top: 10px; color: #806b5b; line-height: 1.5; }
+@media(max-width:560px) {
+  .account-verification-actions { grid-template-columns: 1fr; }
+  .account-request-actions { display: grid; grid-template-columns: 1fr; }
+  .admin-password-card { padding: 14px; }
+}

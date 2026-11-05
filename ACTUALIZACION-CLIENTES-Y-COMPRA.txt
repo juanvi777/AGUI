@@ -5,8 +5,8 @@ CAMBIOS
 - “Al carrito” sigue disponible para comprar varios productos o unidades juntas.
 - Se agregó “Iniciar sesión” en la cabecera. La cabecera muestra el primer nombre del cliente cuando su sesión está activa.
 - Los clientes pueden crear una cuenta con nombre, correo y contraseña, o iniciar sesión.
-- Todos los pedidos requieren una sesión de cliente y quedan relacionados con su cuenta.
-- Desde AGUI 1.6 se eliminó Google. El cliente registra su nombre y correo, confirma un código enviado a esa dirección y después crea su contraseña.
+- Los domicilios requieren una sesión de cliente autorizada por Guillermo y quedan relacionados con su cuenta. Los pedidos desde mesa mediante QR no necesitan registro.
+- Desde AGUI 1.7 el cliente registra nombre, correo y contraseña y entra inmediatamente. La autorización manual de Guillermo solo se exige para domicilios. La recuperación de contraseña también se gestiona mediante una solicitud a Guillermo y un enlace seguro para compartir por WhatsApp.
 - La actualización de la tabla customers se aplica automáticamente al arrancar el servidor y no borra los datos anteriores.
 
 ACTUALIZACIÓN EN WINDOWS

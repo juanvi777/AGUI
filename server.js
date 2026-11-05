@@ -11,7 +11,6 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
-const sharp = require('sharp');
 const passport = require('passport');
 
 const app = express();
@@ -84,11 +83,11 @@ app.use((req, _res, next) => {
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const [rows] = await pool.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? AND email_verified_at IS NOT NULL', [id]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, email_verified_at, delivery_verified_at FROM customers WHERE id = ? LIMIT 1', [id]);
     done(null, rows[0] || false);
   } catch (e) { done(e); }
 });
-// AGUI usa registro por correo y contraseña. Passport mantiene las sesiones locales de clientes.
+// AGUI usa cuentas locales. La aprobación del dueño es independiente del inicio de sesión.
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' } });
 const verificationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Has realizado demasiadas solicitudes de verificación. Espera 15 minutos e inténtalo de nuevo.' } });
@@ -118,8 +117,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 function requireCustomer(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión o crear una cuenta de cliente antes de realizar el pedido.' });
-  if (!req.user.email_verified_at) return res.status(403).json({ error: 'Debes verificar tu correo electrónico antes de usar tu cuenta.' });
+  if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión o crear una cuenta de cliente antes de continuar.' });
   next();
 }
 function productPayload(body) {
@@ -159,7 +157,7 @@ app.get('/api/config', async (_req, res, next) => {
       phone: settings.business_phone || BUSINESS_DEFAULTS.phone,
       whatsapp: settings.business_whatsapp || BUSINESS_DEFAULTS.whatsapp, email: settings.business_email || '',
       orderNotice: settings.order_notice || '', zones,
-      payments, customerEmailVerification: true, turnstileSiteKey: (process.env.TURNSTILE_SITE_KEY && process.env.TURNSTILE_SECRET_KEY) ? process.env.TURNSTILE_SITE_KEY : ''
+      payments, customerEmailVerification: false, accountApprovalForDelivery: true
     });
   } catch (e) { next(e); }
 });
@@ -206,199 +204,33 @@ function finishCustomerLogin(req, res, next, customer) {
     req.session.customerLastAction = Date.now();
     req.session.save(saveErr => {
       if (saveErr) return next(saveErr);
-      res.json({ ok: true, customer: { id: customer.id, email: customer.email, full_name: customer.full_name, phone: customer.phone || null } });
+      res.json({ ok: true, customer: { id: customer.id, email: customer.email, full_name: customer.full_name, phone: customer.phone || null, delivery_verified_at: customer.delivery_verified_at || null } });
     });
   });
-}
-
-function verificationCodeHash(email, code) {
-  return crypto.createHmac('sha256', process.env.SESSION_SECRET).update(`${email}:${code}`).digest('hex');
-}
-
-async function sendResendEmail({ to, subject, html, text }) {
-  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) return { ok: false, reason: 'not_configured' };
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.MAIL_FROM, to: [to], subject, html, text }),
-      signal: AbortSignal.timeout(12000)
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      console.error('Resend rechazó un envío de correo AGUI. HTTP', response.status, payload.message || payload.name || 'Sin detalle');
-      return { ok: false, reason: 'provider_error' };
-    }
-    return { ok: true };
-  } catch (error) {
-    console.error('No fue posible conectar con el servicio de correo AGUI:', error.message);
-    return { ok: false, reason: 'network_error' };
-  }
-}
-
-async function verifyTurnstileToken(token, remoteIp) {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return { ok: true, enabled: false };
-  if (!token) return { ok: false, enabled: true };
-  try {
-    const body = new URLSearchParams({ secret, response: token });
-    if (remoteIp) body.set('remoteip', remoteIp);
-    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
-      signal: AbortSignal.timeout(10000)
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.success !== true) return { ok: false, enabled: true };
-    if (process.env.NODE_ENV === 'production') {
-      const expectedHost = new URL(BASE_URL).hostname;
-      if (String(result.hostname || '') !== expectedHost) return { ok: false, enabled: true };
-    }
-    return { ok: true, enabled: true };
-  } catch (error) {
-    console.error('No fue posible validar Turnstile:', error.message);
-    return { ok: false, enabled: true };
-  }
-}
-
-async function createAndSendVerificationCode(email, fullName) {
-  const normalizedEmail = cleanText(email, 254).toLowerCase();
-  const name = cleanText(fullName, 160);
-  const [recent] = await pool.execute(
-    'SELECT email FROM pending_customer_registrations WHERE email = ? AND resend_after > NOW() LIMIT 1',
-    [normalizedEmail]
-  );
-  if (recent.length) return { ok: false, reason: 'cooldown' };
-
-  // Aún se conserva la solicitud pendiente, pero nunca se guarda una contraseña
-  // antes de que la persona demuestre que controla el correo.
-  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
-    await pool.execute(`INSERT INTO pending_customer_registrations
-      (email, full_name, code_hash, expires_at, attempts, resend_after)
-      VALUES (?, ?, NULL, DATE_SUB(NOW(), INTERVAL 1 SECOND), 0, NOW())
-      ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), code_hash = NULL,
-      expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND), attempts = 0, resend_after = NOW()`,
-      [normalizedEmail, name]);
-    return { ok: false, reason: 'not_configured' };
-  }
-
-  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  const codeHash = verificationCodeHash(normalizedEmail, code);
-  await pool.execute(`INSERT INTO pending_customer_registrations
-    (email, full_name, code_hash, expires_at, attempts, resend_after)
-    VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), 0, DATE_ADD(NOW(), INTERVAL 60 SECOND))
-    ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), code_hash = VALUES(code_hash),
-    expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE), attempts = 0,
-    resend_after = DATE_ADD(NOW(), INTERVAL 60 SECOND)`,
-    [normalizedEmail, name, codeHash]);
-
-  const sent = await sendResendEmail({
-    to: normalizedEmail,
-    subject: 'Verifica tu correo para AGUI',
-    text: `Tu código de verificación de AGUI es ${code}. Vence en 10 minutos. Si no solicitaste esta cuenta, ignora este mensaje.`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#38251b"><h2>Verifica tu correo · AGUI</h2><p>Usa este código para activar tu cuenta. Es válido durante 10 minutos y solo se puede utilizar una vez.</p><div style="display:inline-block;padding:16px 24px;background:#fff2e7;border:1px solid #e8c8ac;border-radius:12px;font-size:30px;font-weight:800;letter-spacing:8px;color:#a94e22">${code}</div><p>Si no solicitaste esta cuenta, ignora este mensaje.</p></div>`
-  });
-  if (!sent.ok) {
-    // Un código que no llegó nunca debe quedar inutilizable.
-    await pool.execute('UPDATE pending_customer_registrations SET code_hash = NULL, expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND) WHERE email = ?', [normalizedEmail]);
-  }
-  return sent;
 }
 
 app.post('/api/auth/customer/register', verificationLimiter, async (req, res, next) => {
   try {
     const fullName = cleanText(req.body.full_name, 160);
     const email = cleanText(req.body.email, 254).toLowerCase();
+    const password = String(req.body.password || '');
+    const confirm = String(req.body.confirm_password || '');
     if (fullName.length < 2) return res.status(400).json({ error: 'Escribe tu nombre completo.' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Escribe un correo electrónico válido.' });
-    const captcha = await verifyTurnstileToken(String(req.body.turnstile_token || ''), req.ip);
-    if (!captcha.ok) return res.status(400).json({ error: 'Completa la verificación de seguridad antes de crear la cuenta.' });
+    if (password.length < 8 || password.length > 72) return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 72 caracteres.' });
+    if (password !== confirm) return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
     const [admins] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [email]);
     if (admins.length) return res.status(409).json({ error: 'Ese correo está reservado para el acceso administrativo.' });
-
-    const [existing] = await pool.execute('SELECT id, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
-    if (existing.length && existing[0].email_verified_at) {
-      return res.status(409).json({ error: 'Ya existe una cuenta verificada con ese correo. Inicia sesión o usa “¿Olvidaste tu contraseña?”.' });
-    }
-
-    const delivery = await createAndSendVerificationCode(email, fullName);
-    if (delivery.reason === 'cooldown') {
-      return res.status(429).json({ error: 'Ya enviamos un código hace poco. Revisa tu correo o espera un minuto para solicitar otro.', email });
-    }
-    res.status(201).json({
-      ok: true, email, verificationRequired: true, emailSent: delivery.ok,
-      message: delivery.ok
-        ? 'Te enviamos un código de 6 dígitos. Revisa tu bandeja de entrada y la carpeta de correo no deseado.'
-        : 'No pudimos enviar el código todavía. Revisa la configuración del correo o intenta reenviarlo más tarde.'
-    });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/auth/customer/resend-verification', verificationLimiter, async (req, res, next) => {
-  try {
-    const email = cleanText(req.body.email, 254).toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Escribe un correo válido.' });
-    const [rows] = await pool.execute('SELECT email, full_name FROM pending_customer_registrations WHERE email = ? LIMIT 1', [email]);
-    if (!rows.length) {
-      return res.json({ ok: true, message: 'Si existe una solicitud pendiente con ese correo, podrás continuar con la verificación.' });
-    }
-    const result = await createAndSendVerificationCode(rows[0].email, rows[0].full_name);
-    if (result.reason === 'cooldown') return res.status(429).json({ error: 'Espera un minuto antes de solicitar otro código.' });
-    if (!result.ok) return res.status(503).json({ error: 'AGUI no pudo enviar el correo. El servicio de correo debe estar configurado correctamente.' });
-    res.json({ ok: true, message: 'Te enviamos un nuevo código. Revisa tu correo.' });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/auth/customer/verify-email', verificationLimiter, async (req, res, next) => {
-  const email = cleanText(req.body.email, 254).toLowerCase();
-  const code = String(req.body.code || '').trim();
-  const password = String(req.body.password || '');
-  const confirm = String(req.body.confirm_password || '');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'El correo no es válido.' });
-  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Escribe el código de 6 dígitos.' });
-  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 72 caracteres.' });
-  if (password !== confirm) return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
-
-  let conn;
-  let customer = null;
-  try {
-    conn = await pool.getConnection();
-    await conn.beginTransaction();
-    const [pendingRows] = await conn.execute(
-      'SELECT email, full_name, code_hash, attempts FROM pending_customer_registrations WHERE email = ? AND expires_at > NOW() LIMIT 1 FOR UPDATE',
-      [email]
-    );
-    if (!pendingRows.length || !pendingRows[0].code_hash || Number(pendingRows[0].attempts) >= 5) {
-      await conn.rollback();
-      return res.status(400).json({ error: 'El código no es válido o ya venció. Solicita uno nuevo.' });
-    }
-    const pending = pendingRows[0];
-    const expected = Buffer.from(pending.code_hash, 'hex');
-    const provided = Buffer.from(verificationCodeHash(email, code), 'hex');
-    const match = expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
-    if (!match) {
-      await conn.execute('UPDATE pending_customer_registrations SET attempts = attempts + 1 WHERE email = ?', [email]);
-      await conn.commit();
-      return res.status(400).json({ error: Number(pending.attempts) >= 4 ? 'Se agotaron los intentos. Solicita un código nuevo.' : 'El código ingresado es incorrecto.' });
-    }
-
+    const [existing] = await pool.execute('SELECT id FROM customers WHERE email = ? LIMIT 1', [email]);
+    if (existing.length) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo. Inicia sesión o solicita recuperar tu contraseña.' });
     const passwordHash = await bcrypt.hash(password, 12);
-    const [existing] = await conn.execute('SELECT id FROM customers WHERE email = ? LIMIT 1 FOR UPDATE', [email]);
-    if (existing.length) {
-      await conn.execute('UPDATE customers SET full_name = ?, password_hash = ?, email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = ?', [pending.full_name, passwordHash, existing[0].id]);
-      const [verifiedRows] = await conn.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? LIMIT 1', [existing[0].id]);
-      customer = verifiedRows[0];
-    } else {
-      const [created] = await conn.execute('INSERT INTO customers (email, full_name, password_hash, email_verified_at) VALUES (?, ?, ?, NOW())', [email, pending.full_name, passwordHash]);
-      const [verifiedRows] = await conn.execute('SELECT id, email, full_name, phone, email_verified_at FROM customers WHERE id = ? LIMIT 1', [created.insertId]);
-      customer = verifiedRows[0];
-    }
-    await conn.execute('DELETE FROM pending_customer_registrations WHERE email = ?', [email]);
-    await conn.commit();
-  } catch (e) {
-    if (conn) { try { await conn.rollback(); } catch (_) {} }
-    return next(e);
-  } finally { if (conn) conn.release(); }
-  finishCustomerLogin(req, res, next, customer);
+    const [created] = await pool.execute(
+      'INSERT INTO customers (email, full_name, password_hash, email_verified_at, delivery_verified_at) VALUES (?, ?, ?, NULL, NULL)',
+      [email, fullName, passwordHash]
+    );
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, email_verified_at, delivery_verified_at FROM customers WHERE id = ? LIMIT 1', [created.insertId]);
+    finishCustomerLogin(req, res, next, rows[0]);
+  } catch (e) { next(e); }
 });
 
 app.post('/api/auth/customer/login', loginLimiter, async (req, res, next) => {
@@ -406,11 +238,10 @@ app.post('/api/auth/customer/login', loginLimiter, async (req, res, next) => {
     const email = cleanText(req.body.email, 254).toLowerCase();
     const password = String(req.body.password || '');
     if (!email || !password) return res.status(400).json({ error: 'Escribe tu correo y contraseña.' });
-    const [rows] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at, delivery_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
     const customer = rows[0];
     const matched = customer && customer.password_hash && await bcrypt.compare(password, customer.password_hash);
     if (!matched) return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
-    if (!customer.email_verified_at) return res.status(403).json({ error: 'Primero verifica tu correo. Solicita o reenvía el código de verificación.' });
     finishCustomerLogin(req, res, next, customer);
   } catch (e) { next(e); }
 });
@@ -430,7 +261,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
     const password = String(req.body.password || '');
     if (!email || !password) return res.status(400).json({ error: 'Escribe tu correo y contraseña.' });
     // Admin lookup first. The role is resolved server-side, never selected by the visitor.
-    const [admins] = await pool.execute('SELECT id, email, full_name, password_hash, active, password_change_available FROM admins WHERE email = ? LIMIT 1', [email]);
+    const [admins] = await pool.execute('SELECT id, email, full_name, password_hash, active, password_change_available, password_changes_without_verification FROM admins WHERE email = ? LIMIT 1', [email]);
     const admin = admins[0];
     if (admin) {
       const matched = admin.active && await bcrypt.compare(password, admin.password_hash);
@@ -443,15 +274,14 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
         req.session.adminMustChangePassword = Number(admin.password_change_available) === 1;
         req.session.save(saveErr => {
           if (saveErr) return next(saveErr);
-          res.json({ ok: true, role: 'admin', mustChangePassword: req.session.adminMustChangePassword, admin: { id: admin.id, email: admin.email, name: admin.full_name } });
+          res.json({ ok: true, role: 'admin', mustChangePassword: req.session.adminMustChangePassword, admin: { id: admin.id, email: admin.email, name: admin.full_name, passwordChangesRemaining: Math.max(0, 2 - Number(admin.password_changes_without_verification || 0)) } });
         });
       });
     }
-    const [customers] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
+    const [customers] = await pool.execute('SELECT id, email, full_name, phone, password_hash, email_verified_at, delivery_verified_at FROM customers WHERE email = ? LIMIT 1', [email]);
     const customer = customers[0];
     const matched = customer && customer.password_hash && await bcrypt.compare(password, customer.password_hash);
     if (!matched) return res.status(401).json({ error: customer && !customer.password_hash ? 'Esta cuenta necesita una contraseña. Usa “¿Olvidaste tu contraseña?” para crearla.' : 'Correo o contraseña incorrectos.' });
-    if (!customer.email_verified_at) return res.status(403).json({ error: 'Primero verifica tu correo. Solicita o reenvía el código de verificación.' });
     finishCustomerLogin(req, res, next, customer);
   } catch (e) { next(e); }
 });
@@ -462,41 +292,61 @@ app.post('/api/auth/admin/first-password-change', requireAdmin, async (req, res,
     const confirm = String(req.body.confirm || '');
     if (password.length < 12 || password.length > 72) return res.status(400).json({ error: 'La nueva contraseña debe tener entre 12 y 72 caracteres.' });
     if (password !== confirm) return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
-    const [rows] = await pool.execute('SELECT password_change_available FROM admins WHERE id = ? AND active = 1', [req.session.adminId]);
-    if (!rows.length || Number(rows[0].password_change_available) !== 1) return res.status(403).json({ error: 'La oportunidad de cambio inicial ya fue utilizada.' });
+    const [rows] = await pool.execute('SELECT password_change_available, password_changes_without_verification FROM admins WHERE id = ? AND active = 1', [req.session.adminId]);
+    if (!rows.length || Number(rows[0].password_change_available) !== 1) return res.status(403).json({ error: 'No hay un cambio inicial pendiente.' });
+    if (Number(rows[0].password_changes_without_verification || 0) >= 2) return res.status(403).json({ error: 'Ya utilizaste los dos cambios de contraseña sin verificación.' });
     const hash = await bcrypt.hash(password, 12);
-    await pool.execute('UPDATE admins SET password_hash = ?, password_change_available = 0 WHERE id = ?', [hash, req.session.adminId]);
+    await pool.execute('UPDATE admins SET password_hash = ?, password_change_available = 0, password_changes_without_verification = password_changes_without_verification + 1 WHERE id = ?', [hash, req.session.adminId]);
     req.session.adminMustChangePassword = false;
-    res.json({ ok: true, message: 'Contraseña inicial actualizada. Los próximos cambios requerirán recuperación verificada.' });
+    res.json({ ok: true, message: 'Contraseña actualizada. Tienes un segundo cambio sin verificación disponible.' });
   } catch (e) { next(e); }
 });
 
-async function sendRecoveryEmail(to, link) {
-  return sendResendEmail({
-    to,
-    subject: 'Recupera tu acceso a AGUI',
-    text: `Solicitaste cambiar tu contraseña. Abre este enlace, válido durante 30 minutos y de un solo uso: ${link}`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#38251b"><h2>Recuperación de contraseña · AGUI</h2><p>Solicitaste cambiar tu contraseña. El enlace es válido durante 30 minutos y solo se puede usar una vez.</p><p><a href="${link}" style="display:inline-block;padding:14px 22px;background:#a94e22;color:#fff;text-decoration:none;border-radius:8px">Crear nueva contraseña</a></p><p>Si no solicitaste este cambio, ignora este mensaje.</p></div>`
-  });
-}
+app.post('/api/auth/admin/change-password', requireAdmin, async (req, res, next) => {
+  try {
+    const current = String(req.body.current_password || '');
+    const password = String(req.body.password || '');
+    const confirm = String(req.body.confirm || '');
+    if (password.length < 12 || password.length > 72) return res.status(400).json({ error: 'La contraseña debe tener entre 12 y 72 caracteres.' });
+    if (password !== confirm) return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
+    const [rows] = await pool.execute('SELECT password_hash, password_change_available, password_changes_without_verification FROM admins WHERE id = ? AND active = 1 LIMIT 1', [req.session.adminId]);
+    if (!rows.length) return res.status(401).json({ error: 'La sesión administrativa no es válida.' });
+    if (Number(rows[0].password_change_available) === 1) return res.status(428).json({ error: 'Primero debes completar el cambio inicial de contraseña.' });
+    if (Number(rows[0].password_changes_without_verification || 0) >= 2) return res.status(403).json({ error: 'Ya utilizaste los dos cambios de contraseña sin verificación.' });
+    if (!current || !(await bcrypt.compare(current, rows[0].password_hash))) return res.status(401).json({ error: 'La contraseña actual no es correcta.' });
+    const hash = await bcrypt.hash(password, 12);
+    await pool.execute('UPDATE admins SET password_hash = ?, password_changes_without_verification = password_changes_without_verification + 1 WHERE id = ?', [hash, req.session.adminId]);
+    res.json({ ok: true, message: 'Contraseña actualizada. Ya utilizaste el segundo cambio disponible sin verificación.' });
+  } catch (e) { next(e); }
+});
+
 app.post('/api/auth/forgot-password', loginLimiter, async (req, res, next) => {
   try {
     const email = cleanText(req.body.email, 254).toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Escribe un correo válido.' });
-    const [admins] = await pool.execute('SELECT id, email FROM admins WHERE email = ? AND active = 1 LIMIT 1', [email]);
-    const [customers] = admins.length ? [[]] : await pool.execute('SELECT id, email FROM customers WHERE email = ? LIMIT 1', [email]);
-    const record = admins[0] ? { ...admins[0], kind: 'admin' } : customers[0] ? { ...customers[0], kind: 'customer' } : null;
-    if (record && process.env.RESEND_API_KEY && process.env.MAIL_FROM) {
-      const raw = crypto.randomBytes(32).toString('hex');
-      const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
-      await pool.execute('INSERT INTO password_reset_tokens (user_type, user_id, token_hash, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [record.kind, record.id, tokenHash]);
-      const link = `${BASE_URL}/?reset=${raw}`;
-      const sent = await sendRecoveryEmail(email, link);
-      if (!sent.ok) console.error('No se pudo enviar el correo de recuperación. Motivo:', sent.reason);
+    const [admins] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [email]);
+    if (admins.length) {
+      return res.json({ ok: true, message: 'La cuenta de Guillermo tiene hasta dos cambios de contraseña sin verificación. Para seguridad, la recuperación administrativa no se tramita como cuenta de cliente.' });
     }
-    res.json({ ok: true, message: 'Si el correo está registrado y el servicio de correo está configurado, recibirás un enlace de recuperación.' });
+    const [customers] = await pool.execute('SELECT id, email, full_name, phone FROM customers WHERE email = ? LIMIT 1', [email]);
+    if (customers.length) {
+      const customer = customers[0];
+      const [pending] = await pool.execute("SELECT id FROM customer_account_requests WHERE customer_id = ? AND request_type = 'password_reset' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", [customer.id]);
+      if (!pending.length) {
+        await pool.execute("INSERT INTO customer_account_requests (customer_id, request_type, email, full_name, phone, status) VALUES (?, 'password_reset', ?, ?, ?, 'pending')", [customer.id, customer.email, customer.full_name, customer.phone || null]);
+      }
+    }
+    const message = `Hola Guillermo, necesito recuperar mi contraseña de AGUI. El correo de mi cuenta es: ${email}. Por favor valida mi solicitud y compárteme el enlace seguro de recuperación.`;
+    const [waRows] = await pool.execute('SELECT setting_value FROM settings WHERE setting_key = ?', ['business_whatsapp']);
+    const waNumber = (waRows[0] && waRows[0].setting_value) || BUSINESS_DEFAULTS.whatsapp;
+    res.json({
+      ok: true,
+      message: 'Si la cuenta existe, la solicitud quedó pendiente para que Guillermo la revise. También puedes avisarle directamente por WhatsApp.',
+      whatsapp_url: whatsappUrl(message, waNumber)
+    });
   } catch (e) { next(e); }
 });
+
 app.post('/api/auth/reset-password', loginLimiter, async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -525,9 +375,40 @@ app.post('/api/auth/admin/logout', requireAdmin, (req, res) => {
   req.session.save(err => err ? res.status(500).json({ error: 'No se pudo cerrar sesión.' }) : res.json({ ok: true }));
 });
 
+async function getBusinessWhatsAppNumber() {
+  const [rows] = await pool.execute('SELECT setting_value FROM settings WHERE setting_key = ?', ['business_whatsapp']);
+  return (rows[0] && rows[0].setting_value) || BUSINESS_DEFAULTS.whatsapp;
+}
+
+app.get('/api/customer/account-status', requireCustomer, async (req, res, next) => {
+  try {
+    const [customers] = await pool.execute('SELECT delivery_verified_at FROM customers WHERE id = ? LIMIT 1', [req.user.id]);
+    const [requests] = await pool.execute("SELECT id, status, created_at FROM customer_account_requests WHERE customer_id = ? AND request_type = 'delivery_verification' ORDER BY created_at DESC LIMIT 1", [req.user.id]);
+    res.json({ delivery_verified_at: customers[0]?.delivery_verified_at || null, latest_request: requests[0] || null });
+  } catch (e) { next(e); }
+});
+
+app.post('/api/customer/verification-request', requireCustomer, verificationLimiter, async (req, res, next) => {
+  try {
+    const [customers] = await pool.execute('SELECT id, email, full_name, phone, delivery_verified_at FROM customers WHERE id = ? LIMIT 1', [req.user.id]);
+    const customer = customers[0];
+    if (!customer) return res.status(404).json({ error: 'No encontramos tu cuenta.' });
+    if (customer.delivery_verified_at) return res.json({ ok: true, alreadyVerified: true, message: 'Tu cuenta ya está autorizada para realizar domicilios.' });
+    const [pending] = await pool.execute("SELECT id FROM customer_account_requests WHERE customer_id = ? AND request_type = 'delivery_verification' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", [customer.id]);
+    let requestId = pending[0]?.id;
+    if (!requestId) {
+      const [created] = await pool.execute("INSERT INTO customer_account_requests (customer_id, request_type, email, full_name, phone, status) VALUES (?, 'delivery_verification', ?, ?, ?, 'pending')", [customer.id, customer.email, customer.full_name, customer.phone || null]);
+      requestId = created.insertId;
+    }
+    const message = `Hola Guillermo, solicito la verificación de mi cuenta AGUI para poder realizar pedidos a domicilio.\nSolicitud: #${requestId}\nNombre: ${customer.full_name}\nCorreo: ${customer.email}\nTeléfono: ${customer.phone || 'No registrado'}. Por favor revisa y autoriza mi cuenta desde el panel de AGUI.`;
+    const waNumber = await getBusinessWhatsAppNumber();
+    res.status(201).json({ ok: true, request_id: requestId, pending: true, whatsapp_url: whatsappUrl(message, waNumber), message: 'Tu solicitud quedó registrada y está pendiente de aprobación por Guillermo.' });
+  } catch (e) { next(e); }
+});
+
 app.get('/api/customer/profile', requireCustomer, async (req, res, next) => {
   try {
-    const [rows] = await pool.execute('SELECT id, email, full_name, username, phone, email_verified_at FROM customers WHERE id = ? LIMIT 1', [req.user.id]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, username, phone, email_verified_at, delivery_verified_at FROM customers WHERE id = ? LIMIT 1', [req.user.id]);
     res.json(rows[0] || {});
   } catch (e) { next(e); }
 });
@@ -546,7 +427,7 @@ app.patch('/api/customer/profile', requireCustomer, async (req, res, next) => {
     if (dupe.length) return res.status(409).json({ error: 'Ese nombre de usuario ya está ocupado.' });
     if (newPassword) { const hash = await bcrypt.hash(newPassword, 12); await pool.execute('UPDATE customers SET full_name = ?, username = ?, phone = ?, password_hash = ? WHERE id = ?', [fullName, username, phone || null, hash, req.user.id]); }
     else await pool.execute('UPDATE customers SET full_name = ?, username = ?, phone = ? WHERE id = ?', [fullName, username, phone || null, req.user.id]);
-    const [rows] = await pool.execute('SELECT id, email, full_name, username, phone FROM customers WHERE id = ?', [req.user.id]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, username, phone, delivery_verified_at FROM customers WHERE id = ?', [req.user.id]);
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
@@ -581,6 +462,63 @@ app.get('/api/customer/orders', requireCustomer, async (req, res, next) => {
     const [orders] = await pool.execute('SELECT id,order_number,customer_name,delivery_zone,delivery_address,subtotal,shipping_cost,total,status,order_type,table_label,payment_method,tracking_token,created_at FROM orders WHERE customer_id = ? ORDER BY created_at DESC LIMIT 100', [req.user.id]);
     for (const order of orders) { const [items] = await pool.execute('SELECT product_name,unit_price,quantity,line_total FROM order_items WHERE order_id = ? ORDER BY id', [order.id]); order.items = items; }
     res.json(orders);
+  } catch (e) { next(e); }
+});
+
+app.get('/api/admin/password-status', requireAdmin, async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute('SELECT password_changes_without_verification, password_change_available FROM admins WHERE id = ? AND active = 1 LIMIT 1', [req.session.adminId]);
+    if (!rows.length) return res.status(401).json({ error: 'La sesión administrativa no es válida.' });
+    res.json({ remaining: Math.max(0, 2 - Number(rows[0].password_changes_without_verification || 0)), initialChangeRequired: Number(rows[0].password_change_available) === 1 });
+  } catch (e) { next(e); }
+});
+
+app.get('/api/admin/account-requests', requireAdmin, async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query(`SELECT r.id, r.customer_id, r.request_type, r.email, r.full_name, r.phone, r.status, r.created_at,
+      c.delivery_verified_at
+      FROM customer_account_requests r LEFT JOIN customers c ON c.id = r.customer_id
+      WHERE r.status = 'pending' ORDER BY r.created_at ASC LIMIT 200`);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+app.post('/api/admin/account-requests/:id/approve', requireAdmin, async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Solicitud no válida.' });
+    await conn.beginTransaction();
+    const [rows] = await conn.execute("SELECT * FROM customer_account_requests WHERE id = ? AND status = 'pending' LIMIT 1 FOR UPDATE", [id]);
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ error: 'La solicitud ya fue atendida o no existe.' }); }
+    const request = rows[0];
+    if (request.request_type === 'delivery_verification') {
+      await conn.execute('UPDATE customers SET delivery_verified_at = COALESCE(delivery_verified_at, NOW()) WHERE id = ?', [request.customer_id]);
+      await conn.execute("UPDATE customer_account_requests SET status = 'approved', processed_at = NOW(), processed_by = ? WHERE id = ?", [req.session.adminId, id]);
+      await conn.commit();
+      return res.json({ ok: true, request_type: request.request_type, message: 'Cuenta autorizada para pedidos a domicilio.' });
+    }
+    if (request.request_type === 'password_reset') {
+      const raw = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+      await conn.execute("UPDATE password_reset_tokens SET used_at = NOW() WHERE user_type = 'customer' AND user_id = ? AND used_at IS NULL", [request.customer_id]);
+      await conn.execute("INSERT INTO password_reset_tokens (user_type, user_id, token_hash, expires_at) VALUES ('customer', ?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))", [request.customer_id, tokenHash]);
+      await conn.execute("UPDATE customer_account_requests SET status = 'approved', processed_at = NOW(), processed_by = ? WHERE id = ?", [req.session.adminId, id]);
+      await conn.commit();
+      return res.json({ ok: true, request_type: request.request_type, reset_url: `${BASE_URL}/?reset=${raw}`, expires_in_minutes: 30, message: 'Enlace seguro generado. Cópialo y envíaselo al cliente por WhatsApp; vence en 30 minutos y solo sirve una vez.' });
+    }
+    await conn.rollback();
+    return res.status(400).json({ error: 'Tipo de solicitud desconocido.' });
+  } catch (e) { try { await conn.rollback(); } catch (_) {} next(e); }
+  finally { conn.release(); }
+});
+
+app.post('/api/admin/account-requests/:id/reject', requireAdmin, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const [result] = await pool.execute("UPDATE customer_account_requests SET status = 'rejected', processed_at = NOW(), processed_by = ? WHERE id = ? AND status = 'pending'", [req.session.adminId, id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'La solicitud ya fue atendida o no existe.' });
+    res.json({ ok: true, message: 'Solicitud rechazada.' });
   } catch (e) { next(e); }
 });
 
@@ -656,21 +594,11 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilt
   if (!allowedExtensions[file.mimetype] || !allowedExtensions[file.mimetype].includes(ext)) return cb(new Error('Solo se permiten imágenes JPG, PNG o WebP con extensión compatible.'));
   cb(null, true);
 } });
-app.post('/api/admin/upload', requireAdmin, upload.single('image'), async (req, res, next) => {
+app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
-  const sourcePath = req.file.path;
-  const webpName = `${path.parse(req.file.filename).name}.webp`;
-  const outputPath = path.join(uploadDir, webpName);
-  try {
-    await sharp(sourcePath).rotate()
-      .resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 80, effort: 4 }).toFile(outputPath);
-    fs.unlink(sourcePath, () => {});
-    res.status(201).json({ image_url: `/uploads/${webpName}` });
-  } catch (e) {
-    fs.unlink(sourcePath, () => {});
-    next(e);
-  }
+  // Conserva el archivo validado en su formato original; evita requerir un binario
+  // nativo adicional durante la instalación en Railway.
+  res.status(201).json({ image_url: `/uploads/${req.file.filename}` });
 });
 
 app.get('/api/admin/orders', requireAdmin, async (req, res, next) => {
@@ -817,7 +745,7 @@ app.post('/api/orders', orderLimiter, async (req, res, next) => {
       table = tableRows[0];
     } else {
       if (!req.user) return res.status(401).json({ error: 'Para domicilios debes iniciar sesión con una cuenta AGUI.' });
-      if (!req.user.email_verified_at) return res.status(403).json({ error: 'Para realizar domicilios primero debes verificar tu correo electrónico.' });
+      if (!req.user.delivery_verified_at) return res.status(403).json({ error: 'Tu cuenta todavía no está autorizada para domicilios. Entra a tu perfil y solicita la verificación a Guillermo; también puedes contactarlo por WhatsApp.' });
     }
 
     const customerName = cleanText(orderType === 'table' ? body.customer_name : (req.user && req.user.full_name), 160);
@@ -969,6 +897,31 @@ async function start() {
     for (const [column, sql] of customerAdditions) { const [found] = await pool.execute(`SHOW COLUMNS FROM customers LIKE '${column}'`); if (!found.length) await pool.query(sql); }
     const [adminFlag] = await pool.execute("SHOW COLUMNS FROM admins LIKE 'password_change_available'");
     if (!adminFlag.length) await pool.query('ALTER TABLE admins ADD COLUMN password_change_available TINYINT(1) NOT NULL DEFAULT 1 AFTER active');
+    const [deliveryVerifiedColumn] = await pool.execute("SHOW COLUMNS FROM customers LIKE 'delivery_verified_at'");
+    if (!deliveryVerifiedColumn.length) await pool.query('ALTER TABLE customers ADD COLUMN delivery_verified_at DATETIME NULL AFTER email_verified_at');
+    // La verificación histórica de Google/correo se conserva como autorización existente.
+    await pool.query('UPDATE customers SET delivery_verified_at = email_verified_at WHERE delivery_verified_at IS NULL AND email_verified_at IS NOT NULL');
+    const [adminPasswordCounter] = await pool.execute("SHOW COLUMNS FROM admins LIKE 'password_changes_without_verification'");
+    if (!adminPasswordCounter.length) {
+      await pool.query('ALTER TABLE admins ADD COLUMN password_changes_without_verification TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER password_change_available');
+      // Concede dos cambios sin verificación desde esta versión, sin cambiar la contraseña actual.
+      await pool.query('UPDATE admins SET password_changes_without_verification = 0');
+    }
+    await pool.query(`CREATE TABLE IF NOT EXISTS customer_account_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      customer_id BIGINT UNSIGNED NOT NULL,
+      request_type ENUM('delivery_verification','password_reset') NOT NULL,
+      email VARCHAR(254) NOT NULL,
+      full_name VARCHAR(160) NOT NULL,
+      phone VARCHAR(30) NULL,
+      status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+      processed_by BIGINT UNSIGNED NULL,
+      processed_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_customer_account_requests_status (status, request_type, created_at),
+      INDEX idx_customer_account_requests_customer (customer_id, request_type, status),
+      CONSTRAINT fk_account_requests_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     await pool.query(`CREATE TABLE IF NOT EXISTS customer_addresses (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, customer_id BIGINT UNSIGNED NOT NULL,
       label VARCHAR(60) NOT NULL, recipient VARCHAR(160) NOT NULL, phone VARCHAR(30) NOT NULL,
@@ -991,6 +944,7 @@ async function start() {
     // Las cuentas que ya usaban Google habían confirmado su dirección con ese proveedor.
     // Se conserva esa validación histórica para que puedan recuperar su contraseña por correo.
     await pool.query("UPDATE customers SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE google_id IS NOT NULL AND google_id <> '' AND email_verified_at IS NULL");
+    await pool.query("UPDATE customers SET delivery_verified_at = COALESCE(delivery_verified_at, email_verified_at, NOW()) WHERE google_id IS NOT NULL AND google_id <> '' AND delivery_verified_at IS NULL");
     await pool.query(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, user_type ENUM('admin','customer') NOT NULL,
       user_id BIGINT UNSIGNED NOT NULL, token_hash CHAR(64) NOT NULL UNIQUE, expires_at DATETIME NOT NULL,

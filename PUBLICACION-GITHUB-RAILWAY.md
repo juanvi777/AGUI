@@ -1,48 +1,39 @@
-# Publicar AGUI 1.6 en GitHub y Railway
+# Publicar AGUI 1.7 en GitHub y Railway
 
-## 1. Antes de publicar
+## 1. Archivos y seguridad
 
-- No subas `.env` a GitHub. Está excluido mediante `.gitignore`.
-- No compartas `RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, contraseñas ni `SESSION_SECRET`.
-- Mantén conectada la base MySQL actual de Railway. No cambies `DB_HOST`, `DB_NAME`, `DB_USER` ni `DB_PASSWORD` si ya funcionan.
+- Extrae el contenido de AGUI 1.7 sobre la carpeta del proyecto que ya tiene `.git`.
+- Conserva tu `.env` local; no lo copies a GitHub ni al ZIP.
+- No cambies las variables actuales de MySQL ni `SESSION_SECRET`.
+- No se requieren `RESEND_API_KEY`, `MAIL_FROM`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` ni Turnstile para cuentas y solicitudes.
 
-## 2. GitHub y Railway
+## 2. Subir el código
 
-Antes de publicar, ejecuta `npm install` en la carpeta del proyecto para sincronizar `package-lock.json` con las dependencias de AGUI 1.6 y después `npm run check`. Luego sube el contenido de esta carpeta al repositorio que ya usa AGUI. Si Railway está conectado al repositorio, el `git push` inicia el despliegue automáticamente. El comando de inicio sigue siendo `npm start`.
+En PowerShell, desde la carpeta del repositorio:
 
-## 3. Variables de Railway
+```powershell
+npm install
+npm run check
+git add -A
+git commit -m "Actualizar AGUI a 1.7 - autorizacion manual de cuentas"
+git push origin main
+```
 
-Conserva las variables actuales de MySQL, `BASE_URL`, `ADMIN_EMAIL`, `ADMIN_NAME` y `SESSION_SECRET`. Para que AGUI envíe códigos de verificación y enlaces de recuperación, configura también:
+Si Railway no despliega automáticamente desde GitHub, ejecuta `railway up` dentro de la misma carpeta.
 
-- `RESEND_API_KEY`: clave privada de tu cuenta de Resend.
-- `MAIL_FROM`: remitente con un dominio que hayas verificado en Resend, por ejemplo `AGUI <no-reply@tudominio.com>`.
+## 3. Qué ocurre al iniciar
 
-No uses un remitente inventado. Si Resend no reconoce el dominio o la dirección de envío, rechazará los mensajes. El registro se puede crear, pero el cliente no podrá verificar la cuenta hasta que el envío quede funcionando.
+AGUI 1.7 aplica migraciones aditivas para agregar la autorización de domicilios, el contador de cambios de contraseña del administrador y la cola de solicitudes. No borra clientes, pedidos, productos, direcciones ni sesiones. No ejecutes `npm run setup:db` en producción para publicar esta actualización.
 
-### Protección opcional contra bots
+## 4. Flujo de uso
 
-Puedes activar Cloudflare Turnstile creando un widget para el dominio público de AGUI y configurando:
+1. El cliente crea una cuenta con nombre, correo y contraseña, y entra inmediatamente.
+2. Para pedir domicilio, debe enviar una solicitud de autorización desde su perfil. También puede avisar a Guillermo por WhatsApp.
+3. Guillermo inicia sesión en el panel y abre **Solicitudes**. Desde allí puede aprobar o rechazar cada petición.
+4. Al aprobar una solicitud de domicilio, la cuenta queda autorizada. El backend verifica esa autorización al crear el pedido; no depende del navegador.
+5. Si un cliente olvida su contraseña, envía una solicitud desde “¿Olvidaste tu contraseña?”. Guillermo la aprueba en **Solicitudes** y el panel muestra un enlace seguro de 30 minutos, de un solo uso, para compartirlo manualmente por WhatsApp.
+6. Los pedidos desde mesa mediante QR continúan sin exigir cuenta.
 
-- `TURNSTILE_SITE_KEY`: clave pública del widget.
-- `TURNSTILE_SECRET_KEY`: clave privada del widget.
+## 5. Comprobación
 
-Si configuras la clave secreta, el servidor exigirá que el desafío se valide antes de aceptar registros. Si dejas ambas variables vacías, seguirá funcionando la verificación por correo y los límites de solicitudes.
-
-## 4. Base de datos
-
-AGUI 1.6 crea automáticamente la tabla `pending_customer_registrations` si no existe. La contraseña no se guarda hasta que el cliente confirma el código recibido en su correo. La migración es aditiva: no borra ni reemplaza clientes, pedidos, productos, sesiones ni información de la tienda. Para esta actualización normal no ejecutes `npm run setup:db` en producción.
-
-Verifica el despliegue en `https://TU-DOMINIO-PUBLICO/health`; debe responder que MySQL está conectado.
-
-## 5. Comprobaciones
-
-1. Abre AGUI en una ventana privada.
-2. Crea una cuenta con un correo al que tengas acceso.
-3. Confirma que llega el código de 6 dígitos y revisa también spam/promociones.
-4. Introduce el código y crea tu contraseña en ese segundo paso; la cuenta se crea o activa y se inicia sesión.
-5. Cierra sesión e inicia nuevamente con correo y contraseña.
-6. Prueba una solicitud de domicilio.
-7. Escanea un QR de mesa y confirma que sigue permitiendo pedir sin registrarse.
-8. Comprueba el acceso de administrador y el panel.
-
-Los pedidos y comprobantes históricos se mantienen. Los pedidos por QR de mesa continúan sin exigir una cuenta.
+Después del despliegue, abre `https://TU-DOMINIO-PUBLICO/health` y confirma que MySQL aparece conectado. Prueba un registro, un inicio de sesión, una solicitud de verificación, su aprobación desde el panel, un pedido a domicilio autorizado y un pedido desde QR de mesa. Comprueba también la recuperación manual de contraseña.

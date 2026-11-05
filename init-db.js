@@ -40,6 +40,29 @@ async function main() {
     const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
     await connection.query(schema);
     // Migración compatible con instalaciones existentes: habilita cuentas de clientes por correo/contraseña.
+    const [deliveryVerifiedColumn] = await connection.execute("SHOW COLUMNS FROM customers LIKE 'delivery_verified_at'");
+    if (!deliveryVerifiedColumn.length) await connection.query('ALTER TABLE customers ADD COLUMN delivery_verified_at DATETIME NULL AFTER email_verified_at');
+    const [adminCounterColumn] = await connection.execute("SHOW COLUMNS FROM admins LIKE 'password_changes_without_verification'");
+    if (!adminCounterColumn.length) {
+      await connection.query('ALTER TABLE admins ADD COLUMN password_changes_without_verification TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER password_change_available');
+      await connection.query('UPDATE admins SET password_changes_without_verification = 0');
+    }
+    await connection.query(`CREATE TABLE IF NOT EXISTS customer_account_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      customer_id BIGINT UNSIGNED NOT NULL,
+      request_type ENUM('delivery_verification','password_reset') NOT NULL,
+      email VARCHAR(254) NOT NULL,
+      full_name VARCHAR(160) NOT NULL,
+      phone VARCHAR(30) NULL,
+      status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+      processed_by BIGINT UNSIGNED NULL,
+      processed_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_customer_account_requests_status (status, request_type, created_at),
+      INDEX idx_customer_account_requests_customer (customer_id, request_type, status),
+      CONSTRAINT fk_account_requests_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
     const [customerColumns] = await connection.execute("SHOW COLUMNS FROM customers LIKE 'password_hash'");
     if (!customerColumns.length) {
       await connection.query('ALTER TABLE customers ADD COLUMN password_hash VARCHAR(255) NULL AFTER full_name');
