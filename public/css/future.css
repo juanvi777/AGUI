@@ -505,3 +505,62 @@ input,select,textarea { font-size:16px; }
 .admin-content .btn:not(.btn-primary):not(.btn-glass) {
   text-shadow: none;
 }
+
+
+/* AGUI 1.9 — panel del dueño: contraste AA y navegación más clara */
+.admin-screen { background:#f5f0e9 !important; color:#28170f !important; }
+.admin-screen .admin-top,
+.admin-screen .admin-sidebar,
+.admin-screen .admin-card,
+.admin-screen .stat-card { background:#fff !important; color:#28170f !important; }
+.admin-screen .admin-top { border-bottom:1px solid #e4d5c8 !important; box-shadow:0 5px 22px rgba(48,25,13,.07); }
+.admin-screen .admin-layout { background:#f5f0e9; }
+.admin-screen .admin-sidebar { border-right:1px solid #e6d9ce !important; }
+.admin-screen .admin-tab { color:#5c4030 !important; font-weight:800; transition:background .18s,color .18s,transform .18s; }
+.admin-screen .admin-tab.active { color:#54220d !important; background:#ffead8 !important; box-shadow:inset 3px 0 #f45b16; }
+.admin-screen .admin-tab:hover { color:#54220d !important; background:#fff3e8 !important; }
+.admin-screen .admin-page-title h1,
+.admin-screen .card-title-row h3,
+.admin-screen .admin-card h3,
+.admin-screen .admin-card h4,
+.admin-screen .admin-table td,
+.admin-screen .stat-card b { color:#28170f !important; }
+.admin-screen .admin-page-title p,
+.admin-screen .admin-card p,
+.admin-screen .admin-card small,
+.admin-screen .stat-card small { color:#654d3e !important; }
+.admin-screen label { color:#533a2c !important; }
+.admin-screen input,
+.admin-screen select,
+.admin-screen textarea { color:#28170f !important; background:#fff !important; border-color:#d9c8ba !important; }
+.admin-screen input::placeholder,
+.admin-screen textarea::placeholder { color:#806b5d !important; opacity:1; }
+.admin-screen .admin-table th { color:#684b39 !important; background:#fff5ec !important; }
+.admin-screen .admin-table td { border-color:#eee3da !important; }
+.admin-screen .admin-notice,
+.admin-screen .settings-note { color:#553a28 !important; background:#fff1df !important; }
+.admin-screen .btn-outline,
+.admin-screen .mini-btn,
+.admin-screen .text-link { color:#382116 !important; }
+.admin-screen .btn-primary { color:#241006 !important; }
+/* Fondos oscuros: fuerza texto claro en sus elementos de contenido. */
+.site-header,.site-header a,.site-header button,.site-header small,
+.announcement,.hero,.hero h1,.hero-content,.hero-content p,
+.promise-strip,.promise-strip b,.promise-strip small,
+.cart-item,.cart-item strong,.cart-item small,
+.table-order-banner,.table-order-banner b,.table-order-banner small,
+.customer-login-box,.customer-login-box p { color:#fff0e2; }
+.site-header .account-button,.site-header .cart-button { color:#fff0e2 !important; }
+.btn-light,.btn-outline,.mini-btn { color:#2b170e !important; }
+.btn-glass { color:#fff4e9 !important; }
+/* Navegación administrativa adaptable: pestañas legibles y táctiles en móvil. */
+.admin-sidebar { scrollbar-width:thin; scrollbar-color:#d5b39a transparent; }
+.admin-tab { min-height:48px; border-radius:12px; }
+@media(max-width:700px) {
+  .admin-sidebar { top:63px; padding:9px 10px !important; gap:7px !important; background:#fff !important; box-shadow:0 7px 18px rgba(43,23,14,.08); scroll-snap-type:x proximity; }
+  .admin-tab { min-width:82px; min-height:58px; flex:0 0 auto; justify-content:center; border:1px solid #eee1d6 !important; border-radius:12px !important; background:#fff !important; scroll-snap-align:start; }
+  .admin-tab.active { border-color:#f3b58b !important; box-shadow:0 3px 10px rgba(244,91,22,.12),inset 0 -3px #f45b16 !important; }
+  .admin-tab span { font-size:9px !important; line-height:1.2; color:inherit !important; }
+  .admin-content { padding:17px 12px 30px !important; }
+  .admin-screen .admin-card { border-radius:14px; box-shadow:0 5px 18px rgba(48,25,13,.045); }
+}

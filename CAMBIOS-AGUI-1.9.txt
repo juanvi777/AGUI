@@ -1,0 +1,17 @@
+AGUI 1.9
+
+- La cuenta oficial del dueño queda fijada en g82794849@gmail.com, sin depender de ADMIN_EMAIL_MIGRATE_FROM ni de un correo anterior.
+- Si la cuenta de cliente ya existe, se conserva íntegra junto con sus pedidos; el inicio de sesión se resuelve como administrador desde la tabla admins.
+- Se crea/reactiva solo el administrador oficial y se desactivan otros administradores, sin borrar sus registros históricos.
+- Contraseña temporal única: se configura en Railway mediante ADMIN_TEMP_PASSWORD=12345678. Se aplica una sola vez con una marca en MySQL y obliga a cambiarla al entrar. No se vuelve a restablecer en reinicios posteriores.
+- El primer cambio inicial queda habilitado en el login; después el panel del dueño y los QR siguen accesibles.
+- Los clientes pueden cambiar su contraseña desde Mi cuenta, confirmando primero la contraseña actual.
+- Se mejoró el contraste de textos y botones y se rediseñó la navegación del panel en móviles.
+
+PUBLICACIÓN
+1. Extraer sobre la carpeta actual conservando .env y .git.
+2. En Railway añadir ADMIN_TEMP_PASSWORD=12345678.
+3. npm install; npm run check; git add -A; git commit -m "AGUI 1.9 cuenta dueño y seguridad"; git push origin main.
+4. Después de que el dueño cambie su contraseña, se puede quitar ADMIN_TEMP_PASSWORD de Railway. La marca bootstrap_password_applied evita que se vuelva a aplicar y el servidor ya no requiere esa variable.
+
+No ejecutar npm run setup:db en producción. Las migraciones son aditivas.

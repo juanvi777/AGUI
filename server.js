@@ -18,6 +18,9 @@ const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const BUSINESS_DEFAULTS = Object.freeze({ address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia', phone: '3122405580', whatsapp: '573122405580' });
 const DB_NAME = process.env.DB_NAME || 'agui_store';
+// Cuenta única del dueño AGUI. El rol se resuelve siempre desde la tabla admins.
+const OWNER_ADMIN_EMAIL = 'g82794849@gmail.com';
+const OWNER_TEMP_PASSWORD = String(process.env.ADMIN_TEMP_PASSWORD || '');
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || process.env.SESSION_SECRET.includes('CAMBIA_')) {
   console.error('Configura SESSION_SECRET en .env con al menos 32 caracteres aleatorios.');
@@ -425,7 +428,13 @@ app.patch('/api/customer/profile', requireCustomer, async (req, res, next) => {
     if (newPassword && newPassword !== confirmPassword) return res.status(400).json({ error: 'Las nuevas contraseñas no coinciden.' });
     const [dupe] = await pool.execute('SELECT id FROM customers WHERE username = ? AND id <> ? LIMIT 1', [username, req.user.id]);
     if (dupe.length) return res.status(409).json({ error: 'Ese nombre de usuario ya está ocupado.' });
-    if (newPassword) { const hash = await bcrypt.hash(newPassword, 12); await pool.execute('UPDATE customers SET full_name = ?, username = ?, phone = ?, password_hash = ? WHERE id = ?', [fullName, username, phone || null, hash, req.user.id]); }
+    if (newPassword) {
+      const currentPassword = String(req.body.current_password || '');
+      const [currentRows] = await pool.execute('SELECT password_hash FROM customers WHERE id = ? LIMIT 1', [req.user.id]);
+      if (!currentPassword || !currentRows[0]?.password_hash || !(await bcrypt.compare(currentPassword, currentRows[0].password_hash))) return res.status(401).json({ error: 'Escribe correctamente tu contraseña actual para cambiarla.' });
+      const hash = await bcrypt.hash(newPassword, 12);
+      await pool.execute('UPDATE customers SET full_name = ?, username = ?, phone = ?, password_hash = ? WHERE id = ?', [fullName, username, phone || null, hash, req.user.id]);
+    }
     else await pool.execute('UPDATE customers SET full_name = ?, username = ?, phone = ? WHERE id = ?', [fullName, username, phone || null, req.user.id]);
     const [rows] = await pool.execute('SELECT id, email, full_name, username, phone, delivery_verified_at FROM customers WHERE id = ?', [req.user.id]);
     res.json(rows[0]);
@@ -841,53 +850,8 @@ app.use((err, _req, res, _next) => {
 async function start() {
   try {
     await pool.query('SELECT 1');
-    // Cambio explícito y de una sola vez del correo del administrador.
-    // ADMIN_EMAIL_MIGRATE_FROM + ADMIN_EMAIL actualiza el mismo registro, conserva su hash
-    // de contraseña y habilita una única oportunidad de cambio inicial de contraseña.
-    const previousAdminEmail = String(process.env.ADMIN_EMAIL_MIGRATE_FROM || '').trim().toLowerCase();
-    const nextAdminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-    const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
-    // Promoción segura: si el correo configurado como dueño ya existe como cliente,
-    // reutiliza su hash de contraseña para crear el administrador. No borra el cliente
-    // ni sus pedidos; el login consulta admins primero y por eso el rol será admin.
-    if (nextAdminEmail && validEmail(nextAdminEmail)) {
-      const [targetAdmins] = await pool.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [nextAdminEmail]);
-      const [targetCustomers] = await pool.execute('SELECT id, full_name, password_hash FROM customers WHERE email = ? LIMIT 1', [nextAdminEmail]);
-      if (!targetAdmins.length && targetCustomers.length && targetCustomers[0].password_hash) {
-        const conn = await pool.getConnection();
-        try {
-          await conn.beginTransaction();
-          await conn.execute('UPDATE admins SET active = 0 WHERE active = 1');
-          await conn.execute(
-            'INSERT INTO admins (email, full_name, password_hash, active, password_change_available, password_changes_without_verification) VALUES (?, ?, ?, 1, 1, 0)',
-            [nextAdminEmail, String(targetCustomers[0].full_name || 'Guillermo').slice(0, 120), targetCustomers[0].password_hash]
-          );
-          await conn.commit();
-          console.log(`La cuenta cliente ${nextAdminEmail} fue promovida a administradora. Se conservó su contraseña y los datos del cliente; debe realizar su primer cambio de contraseña.`);
-        } catch (migrationError) {
-          await conn.rollback();
-          throw migrationError;
-        } finally { conn.release(); }
-      }
-    }
-
-    if (previousAdminEmail && nextAdminEmail && previousAdminEmail !== nextAdminEmail) {
-      if (!validEmail(previousAdminEmail) || !validEmail(nextAdminEmail)) throw new Error('ADMIN_EMAIL_MIGRATE_FROM y ADMIN_EMAIL deben ser correos válidos.');
-      const [oldAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [previousAdminEmail]);
-      const [newAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [nextAdminEmail]);
-      if (oldAdmin.length && newAdmin.length) {
-        await pool.execute('UPDATE admins SET active = 0 WHERE id = ?', [oldAdmin[0].id]);
-        console.log(`Se desactivó la cuenta administrativa anterior ${previousAdminEmail}; se conserva su registro histórico.`);
-      } else if (oldAdmin.length) {
-        await pool.execute('UPDATE admins SET email = ?, password_change_available = 1, password_changes_without_verification = 0 WHERE id = ?', [nextAdminEmail, oldAdmin[0].id]);
-        console.log(`Correo administrador actualizado a ${nextAdminEmail}; contraseña conservada y habilitados dos cambios sin verificación.`);
-      } else if (newAdmin.length) {
-        console.log(`El correo administrador ${nextAdminEmail} ya está configurado; no se modificó su contraseña.`);
-      } else {
-        console.log(`No se encontró la cuenta anterior ${previousAdminEmail}; no se creó ni modificó ninguna cuenta administrativa.`);
-      }
-    }
+    if (OWNER_TEMP_PASSWORD && (OWNER_TEMP_PASSWORD.length < 8 || OWNER_TEMP_PASSWORD.length > 72)) throw new Error('ADMIN_TEMP_PASSWORD debe tener entre 8 y 72 caracteres.');
+    // El dueño se configura de forma determinista después de aplicar las migraciones de columnas.
     // Migraciones aditivas e idempotentes: nunca eliminan pedidos, clientes ni productos.
     await pool.query(`CREATE TABLE IF NOT EXISTS dining_tables (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -934,6 +898,47 @@ async function start() {
       // Concede dos cambios sin verificación desde esta versión, sin cambiar la contraseña actual.
       await pool.query('UPDATE admins SET password_changes_without_verification = 0');
     }
+    const [bootstrapPasswordColumn] = await pool.execute("SHOW COLUMNS FROM admins LIKE 'bootstrap_password_applied'");
+    if (!bootstrapPasswordColumn.length) await pool.query('ALTER TABLE admins ADD COLUMN bootstrap_password_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER password_changes_without_verification');
+
+    // Promueve o crea el dueño oficial. La contraseña temporal se aplica UNA sola vez
+    // mediante bootstrap_password_applied y obliga a cambiarla antes de entrar al panel.
+    // El registro de cliente se conserva intacto (incluidos sus pedidos e historial).
+    const [ownerRows] = await pool.execute('SELECT id, full_name, password_change_available, bootstrap_password_applied FROM admins WHERE email = ? LIMIT 1', [OWNER_ADMIN_EMAIL]);
+    const [ownerCustomerRows] = await pool.execute('SELECT full_name FROM customers WHERE email = ? LIMIT 1', [OWNER_ADMIN_EMAIL]);
+    const ownerName = String(ownerRows[0]?.full_name || ownerCustomerRows[0]?.full_name || 'Guillermo').slice(0, 120);
+    const needsOwnerBootstrap = !ownerRows.length || Number(ownerRows[0].bootstrap_password_applied || 0) === 0;
+    if (needsOwnerBootstrap && !OWNER_TEMP_PASSWORD) throw new Error('Antes del primer acceso del dueño, configura ADMIN_TEMP_PASSWORD=12345678 en Railway.');
+    const ownerTempHash = needsOwnerBootstrap ? await bcrypt.hash(OWNER_TEMP_PASSWORD, 12) : null;
+    const connOwner = await pool.getConnection();
+    try {
+      await connOwner.beginTransaction();
+      let ownerId;
+      if (!ownerRows.length) {
+        const [createdOwner] = await connOwner.execute(
+          'INSERT INTO admins (email, full_name, password_hash, active, password_change_available, password_changes_without_verification, bootstrap_password_applied) VALUES (?, ?, ?, 1, 1, 0, 1)',
+          [OWNER_ADMIN_EMAIL, ownerName, ownerTempHash]
+        );
+        ownerId = createdOwner.insertId;
+        console.log(`Se creó la cuenta administradora oficial ${OWNER_ADMIN_EMAIL} con contraseña temporal; deberá cambiarla al iniciar sesión.`);
+      } else {
+        ownerId = ownerRows[0].id;
+        if (needsOwnerBootstrap) {
+          await connOwner.execute(
+            'UPDATE admins SET full_name = ?, password_hash = ?, active = 1, password_change_available = 1, password_changes_without_verification = 0, bootstrap_password_applied = 1 WHERE id = ?',
+            [ownerName, ownerTempHash, ownerId]
+          );
+          console.log(`Se aplicó una sola vez la contraseña temporal a ${OWNER_ADMIN_EMAIL}; el cambio será obligatorio.`);
+        } else {
+          await connOwner.execute('UPDATE admins SET full_name = ?, active = 1 WHERE id = ?', [ownerName, ownerId]);
+        }
+      }
+      await connOwner.execute('UPDATE admins SET active = 0 WHERE id <> ? AND active = 1', [ownerId]);
+      await connOwner.commit();
+    } catch (ownerError) {
+      await connOwner.rollback();
+      throw ownerError;
+    } finally { connOwner.release(); }
     await pool.query(`CREATE TABLE IF NOT EXISTS customer_account_requests (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       customer_id BIGINT UNSIGNED NOT NULL,

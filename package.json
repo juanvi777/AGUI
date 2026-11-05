@@ -1,8 +1,8 @@
 {
   "name": "agui-reposteria-arepas",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
-  "description": "Tienda AGUI con cuentas locales y promoción segura del administrador configurado; mejoras de contraste visual.",
+  "description": "AGUI con cuenta oficial del dueño, contraseña temporal de un solo uso, cambio seguro de contraseña de clientes y mejoras de contraste y navegación.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

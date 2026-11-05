@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/logo.png">
   <link rel="stylesheet" href="/css/styles.css">
-  <link rel="stylesheet" href="/css/future.css?v=1.8.0">
+  <link rel="stylesheet" href="/css/future.css?v=1.9.0">
   <script defer src="/js/app.js"></script>
 </head>
 <body>
@@ -141,7 +141,7 @@
           <label>Nombre completo<input name="full_name" required maxlength="160"></label>
           <label>Nombre de usuario<input name="username" required minlength="3" maxlength="40" placeholder="ej. guillermo_17"></label>
           <label>Teléfono / WhatsApp<input name="phone" maxlength="30" inputmode="tel"></label>
-          <label>Nueva contraseña (opcional)<input name="new_password" type="password" minlength="12" maxlength="72" autocomplete="new-password" placeholder="Mínimo 12 caracteres"></label>
+          <label>Contraseña actual (solo si vas a cambiarla)<input name="current_password" type="password" maxlength="72" autocomplete="current-password" placeholder="Tu contraseña actual"></label><label>Nueva contraseña (opcional)<input name="new_password" type="password" minlength="12" maxlength="72" autocomplete="new-password" placeholder="Mínimo 12 caracteres"></label>
           <label>Confirmar nueva contraseña<input name="confirm_password" type="password" minlength="12" maxlength="72" autocomplete="new-password"></label>
           <button class="btn btn-primary full-width" type="submit">Guardar mi perfil</button>
         </form>
@@ -164,8 +164,8 @@
   </div>
 
   <div class="overlay hidden" id="adminFirstPasswordOverlay" role="dialog" aria-modal="true" aria-labelledby="adminFirstPasswordTitle">
-    <div class="dialog login-dialog"><span class="eyebrow">PROTECCIÓN DE LA CUENTA</span><h2 id="adminFirstPasswordTitle">Actualiza tu contraseña inicial</h2><p>Guillermo cuenta con dos cambios de contraseña sin verificación. Este es el primero; el segundo se puede realizar desde Datos del negocio.</p>
-      <form id="adminFirstPasswordForm" class="auth-form"><label>Nueva contraseña<input type="password" name="password" required minlength="12" maxlength="72" autocomplete="new-password"></label><label>Confirmar contraseña<input type="password" name="confirm" required minlength="12" maxlength="72" autocomplete="new-password"></label><button class="btn btn-primary full-width" type="submit">Guardar contraseña segura</button></form>
+    <div class="dialog login-dialog"><span class="eyebrow">PROTECCIÓN DE LA CUENTA</span><h2 id="adminFirstPasswordTitle">Actualiza tu contraseña inicial</h2><p>Tu cuenta tiene una contraseña temporal. Debes crear una contraseña personal de al menos 12 caracteres para entrar al panel.</p>
+      <form id="adminFirstPasswordForm" class="auth-form"><label>Nueva contraseña<input type="password" name="password" required minlength="12" maxlength="72" autocomplete="new-password" placeholder="Mínimo 12 caracteres"></label><label>Confirmar contraseña<input type="password" name="confirm" required minlength="12" maxlength="72" autocomplete="new-password"></label><button class="btn btn-primary full-width" type="submit">Guardar contraseña segura</button></form>
     </div>
   </div>
 
