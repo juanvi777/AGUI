@@ -1,6 +1,6 @@
 {
   "name": "agui-reposteria-arepas",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Tienda AGUI con pedidos por mesa QR, domicilios con Google, avisos de estado y catálogo optimizado.",
   "main": "server.js",

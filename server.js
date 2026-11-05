@@ -795,6 +795,26 @@ app.use((err, _req, res, _next) => {
 async function start() {
   try {
     await pool.query('SELECT 1');
+    // Cambio explícito y de una sola vez del correo del administrador.
+    // ADMIN_EMAIL_MIGRATE_FROM + ADMIN_EMAIL actualiza el mismo registro, conserva su hash
+    // de contraseña y habilita una única oportunidad de cambio inicial de contraseña.
+    const previousAdminEmail = String(process.env.ADMIN_EMAIL_MIGRATE_FROM || '').trim().toLowerCase();
+    const nextAdminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (previousAdminEmail && nextAdminEmail && previousAdminEmail !== nextAdminEmail) {
+      const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      if (!validEmail(previousAdminEmail) || !validEmail(nextAdminEmail)) throw new Error('ADMIN_EMAIL_MIGRATE_FROM y ADMIN_EMAIL deben ser correos válidos.');
+      const [oldAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [previousAdminEmail]);
+      const [newAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [nextAdminEmail]);
+      if (oldAdmin.length && newAdmin.length) throw new Error('Ya existen registros para el correo administrador anterior y el nuevo. Revisa admins antes de continuar; no se modificó ninguna cuenta.');
+      if (oldAdmin.length) {
+        await pool.execute('UPDATE admins SET email = ?, password_change_available = 1 WHERE id = ?', [nextAdminEmail, oldAdmin[0].id]);
+        console.log(`Correo administrador actualizado a ${nextAdminEmail}; contraseña conservada y habilitado un único cambio inicial sin correo.`);
+      } else if (newAdmin.length) {
+        console.log(`El correo administrador ${nextAdminEmail} ya estaba migrado; no se modificó la contraseña ni se reinició el cambio inicial.`);
+      } else {
+        throw new Error(`No se encontró la cuenta administradora ${previousAdminEmail} ni ${nextAdminEmail}. No se creó una cuenta nueva.`);
+      }
+    }
     // Migraciones aditivas e idempotentes: nunca eliminan pedidos, clientes ni productos.
     await pool.query(`CREATE TABLE IF NOT EXISTS dining_tables (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

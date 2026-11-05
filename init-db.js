@@ -47,8 +47,20 @@ async function main() {
     }
 
     const email = process.env.ADMIN_EMAIL.trim().toLowerCase();
+    const previousEmail = String(process.env.ADMIN_EMAIL_MIGRATE_FROM || '').trim().toLowerCase();
     const name = (process.env.ADMIN_NAME || 'Guillermo').trim();
     const hash = await bcrypt.hash(process.env.ADMIN_INITIAL_PASSWORD, 12);
+    if (previousEmail && previousEmail !== email) {
+      const [oldAdmin] = await connection.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [previousEmail]);
+      const [newAdmin] = await connection.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [email]);
+      if (oldAdmin.length && newAdmin.length) throw new Error('Ya existen las cuentas administradoras anterior y nueva; no se modificó ninguna.');
+      if (oldAdmin.length) {
+        await connection.execute('UPDATE admins SET email = ?, password_change_available = 1 WHERE id = ?', [email, oldAdmin[0].id]);
+        console.log(`Correo administrador actualizado a ${email}; contraseña conservada y habilitado un único cambio inicial.`);
+      } else if (!newAdmin.length) {
+        throw new Error(`No se encontró la cuenta anterior ${previousEmail} ni la nueva ${email}. No se creó otra cuenta.`);
+      }
+    }
     const [existing] = await connection.execute('SELECT id FROM admins WHERE email = ?', [email]);
     if (existing.length) {
       await connection.execute('UPDATE admins SET full_name = ?, active = 1 WHERE email = ?', [name, email]);
