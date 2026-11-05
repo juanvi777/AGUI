@@ -1,8 +1,8 @@
 {
   "name": "agui-reposteria-arepas",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
-  "description": "Tienda AGUI con pedidos por mesa QR, cuentas locales, autorización manual para domicilios, solicitudes al administrador y recuperación segura por WhatsApp.",
+  "description": "Tienda AGUI con cuentas locales y promoción segura del administrador configurado; mejoras de contraste visual.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

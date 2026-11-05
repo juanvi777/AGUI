@@ -846,19 +846,46 @@ async function start() {
     // de contraseña y habilita una única oportunidad de cambio inicial de contraseña.
     const previousAdminEmail = String(process.env.ADMIN_EMAIL_MIGRATE_FROM || '').trim().toLowerCase();
     const nextAdminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+    // Promoción segura: si el correo configurado como dueño ya existe como cliente,
+    // reutiliza su hash de contraseña para crear el administrador. No borra el cliente
+    // ni sus pedidos; el login consulta admins primero y por eso el rol será admin.
+    if (nextAdminEmail && validEmail(nextAdminEmail)) {
+      const [targetAdmins] = await pool.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [nextAdminEmail]);
+      const [targetCustomers] = await pool.execute('SELECT id, full_name, password_hash FROM customers WHERE email = ? LIMIT 1', [nextAdminEmail]);
+      if (!targetAdmins.length && targetCustomers.length && targetCustomers[0].password_hash) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.execute('UPDATE admins SET active = 0 WHERE active = 1');
+          await conn.execute(
+            'INSERT INTO admins (email, full_name, password_hash, active, password_change_available, password_changes_without_verification) VALUES (?, ?, ?, 1, 1, 0)',
+            [nextAdminEmail, String(targetCustomers[0].full_name || 'Guillermo').slice(0, 120), targetCustomers[0].password_hash]
+          );
+          await conn.commit();
+          console.log(`La cuenta cliente ${nextAdminEmail} fue promovida a administradora. Se conservó su contraseña y los datos del cliente; debe realizar su primer cambio de contraseña.`);
+        } catch (migrationError) {
+          await conn.rollback();
+          throw migrationError;
+        } finally { conn.release(); }
+      }
+    }
+
     if (previousAdminEmail && nextAdminEmail && previousAdminEmail !== nextAdminEmail) {
-      const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
       if (!validEmail(previousAdminEmail) || !validEmail(nextAdminEmail)) throw new Error('ADMIN_EMAIL_MIGRATE_FROM y ADMIN_EMAIL deben ser correos válidos.');
       const [oldAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? AND active = 1 LIMIT 1', [previousAdminEmail]);
       const [newAdmin] = await pool.execute('SELECT id FROM admins WHERE email = ? LIMIT 1', [nextAdminEmail]);
-      if (oldAdmin.length && newAdmin.length) throw new Error('Ya existen registros para el correo administrador anterior y el nuevo. Revisa admins antes de continuar; no se modificó ninguna cuenta.');
-      if (oldAdmin.length) {
-        await pool.execute('UPDATE admins SET email = ?, password_change_available = 1 WHERE id = ?', [nextAdminEmail, oldAdmin[0].id]);
-        console.log(`Correo administrador actualizado a ${nextAdminEmail}; contraseña conservada y habilitado un único cambio inicial sin correo.`);
+      if (oldAdmin.length && newAdmin.length) {
+        await pool.execute('UPDATE admins SET active = 0 WHERE id = ?', [oldAdmin[0].id]);
+        console.log(`Se desactivó la cuenta administrativa anterior ${previousAdminEmail}; se conserva su registro histórico.`);
+      } else if (oldAdmin.length) {
+        await pool.execute('UPDATE admins SET email = ?, password_change_available = 1, password_changes_without_verification = 0 WHERE id = ?', [nextAdminEmail, oldAdmin[0].id]);
+        console.log(`Correo administrador actualizado a ${nextAdminEmail}; contraseña conservada y habilitados dos cambios sin verificación.`);
       } else if (newAdmin.length) {
-        console.log(`El correo administrador ${nextAdminEmail} ya estaba migrado; no se modificó la contraseña ni se reinició el cambio inicial.`);
+        console.log(`El correo administrador ${nextAdminEmail} ya está configurado; no se modificó su contraseña.`);
       } else {
-        throw new Error(`No se encontró la cuenta administradora ${previousAdminEmail} ni ${nextAdminEmail}. No se creó una cuenta nueva.`);
+        console.log(`No se encontró la cuenta anterior ${previousAdminEmail}; no se creó ni modificó ninguna cuenta administrativa.`);
       }
     }
     // Migraciones aditivas e idempotentes: nunca eliminan pedidos, clientes ni productos.

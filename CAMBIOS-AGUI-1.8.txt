@@ -1,0 +1,16 @@
+AGUI 1.8 — CORRECCIÓN DE CUENTA ADMINISTRADORA Y CONTRASTE
+
+- El correo configurado en ADMIN_EMAIL se reconoce como administrador.
+- Si ese correo ya existía como cliente y todavía no tenía registro en admins, al iniciar el servidor se crea el registro administrador usando el hash de contraseña existente.
+- La fila de cliente no se elimina y sus pedidos permanecen intactos. El inicio de sesión consulta admins primero, por lo que el correo entra como administrador.
+- El primer acceso administrativo exige cambiar la contraseña. Ese cambio cuenta como el primero de los dos cambios permitidos sin verificación.
+- Si existe una cuenta administradora anterior indicada en ADMIN_EMAIL_MIGRATE_FROM, se desactiva sin borrar su historial cuando la nueva cuenta ya está creada.
+- Se refuerza el contraste de texto en botones de fondo claro.
+
+DESPLIEGUE
+1. Extraer esta versión sobre el proyecto actual conservando .env y .git.
+2. En Railway, confirmar ADMIN_EMAIL=g82794849@gmail.com. No configurar ADMIN_EMAIL_MIGRATE_FROM para esta actualización.
+3. Desplegar normalmente. La promoción se realiza al iniciar el servidor; no ejecutar setup:db.
+4. Iniciar sesión con g82794849@gmail.com y la contraseña que ya tenía esa cuenta de cliente. Completar el cambio inicial de contraseña.
+
+La migración es aditiva: no elimina clientes, pedidos ni productos.

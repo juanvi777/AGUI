@@ -480,3 +480,28 @@ input,select,textarea { font-size:16px; }
   .account-request-actions { display: grid; grid-template-columns: 1fr; }
   .admin-password-card { padding: 14px; }
 }
+
+
+/* AGUI 1.8 — contraste consistente en controles de fondo claro */
+.btn-light,
+.btn-outline,
+.mini-btn,
+.account-button,
+.cart-button,
+.tic-tac-toe > .btn,
+.table-qr-actions .mini-btn {
+  color: #2b170e !important;
+}
+.btn-light:hover,
+.btn-outline:hover,
+.mini-btn:hover,
+.account-button:hover,
+.cart-button:hover,
+.tic-tac-toe > .btn:hover {
+  color: #1b0d07 !important;
+}
+/* Botones claros de acciones administrativas: texto oscuro legible */
+.admin-content button:not(.btn-primary):not(.btn-glass):not(.danger),
+.admin-content .btn:not(.btn-primary):not(.btn-glass) {
+  text-shadow: none;
+}
