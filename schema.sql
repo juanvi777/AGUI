@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS admins (
   full_name VARCHAR(120) NOT NULL DEFAULT 'Dueño AGUI',
   password_hash VARCHAR(255) NOT NULL,
   active TINYINT(1) NOT NULL DEFAULT 1,
+  password_change_available TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -13,6 +14,8 @@ CREATE TABLE IF NOT EXISTS customers (
   google_id VARCHAR(191) NULL UNIQUE,
   email VARCHAR(254) NOT NULL UNIQUE,
   full_name VARCHAR(160) NOT NULL,
+  username VARCHAR(40) NULL UNIQUE,
+  email_verified_at DATETIME NULL,
   password_hash VARCHAR(255) NULL,
   phone VARCHAR(30) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,4 +102,32 @@ CREATE TABLE IF NOT EXISTS settings (
   setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
   setting_value TEXT NOT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+CREATE TABLE IF NOT EXISTS customer_addresses (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  label VARCHAR(60) NOT NULL,
+  recipient VARCHAR(160) NOT NULL,
+  phone VARCHAR(30) NOT NULL,
+  address VARCHAR(255) NOT NULL,
+  zone VARCHAR(100) NOT NULL,
+  notes TEXT NULL,
+  is_default TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_customer_addresses_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_customer_addresses_customer (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_type ENUM('admin','customer') NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_password_reset_user (user_type,user_id),
+  INDEX idx_password_reset_expiry (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

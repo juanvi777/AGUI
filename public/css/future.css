@@ -421,3 +421,28 @@ input,select,textarea { font-size:16px; }
   .table-qr-content label input { border:0; text-align:center; font-weight:bold; }
   .table-qr-actions { display:none!important; }
 }
+
+/* Portal privado de cliente y acceso unificado AGUI */
+.auth-forgot-link{display:block;text-align:right;margin:12px 0 18px;font-size:.9rem}
+.auth-create-account{margin-top:22px;padding:18px;border:1px solid rgba(169,78,34,.18);border-radius:16px;background:rgba(245,231,211,.42)}
+.auth-create-account p{margin:7px 0 13px;color:var(--muted,#806b5b);font-size:.9rem;line-height:1.5}
+.customer-auth-dialog{max-height:min(88vh,900px);overflow-y:auto}
+.customer-profile-form{margin-top:18px;text-align:left}
+.customer-portal-section{margin-top:24px;padding-top:20px;border-top:1px solid rgba(94,57,34,.13);text-align:left}
+.customer-portal-section>h3{font-size:1.12rem;margin:0 0 12px}
+.customer-portal-section>p{font-size:.85rem;line-height:1.5}
+.customer-address-list,.customer-order-list{display:grid;gap:12px;margin:12px 0}
+.customer-address-card,.customer-order-card{padding:14px;border:1px solid rgba(94,57,34,.14);border-radius:14px;background:#fffaf3}
+.customer-address-card{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.customer-address-card p{font-size:.88rem;line-height:1.5;margin:7px 0}
+.customer-address-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.customer-address-form{padding:15px;border-radius:14px;background:rgba(245,231,211,.35);margin-top:12px}
+.customer-address-form h4{margin:0 0 10px}
+.customer-order-head,.customer-receipt-total{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.customer-order-card>small{display:block;color:#806b5b;margin-top:6px}
+.customer-order-card ul{padding-left:18px;margin:12px 0}
+.customer-order-card li{padding:3px 0;font-size:.9rem}
+.customer-order-card li span{float:right;font-weight:700}
+.customer-receipt-total{border-top:1px dashed rgba(94,57,34,.25);padding-top:10px;margin-top:10px;font-size:.86rem}
+.customer-receipt-total b{font-size:1rem;color:#8f421e}
+@media(max-width:560px){.customer-address-card{display:block}.customer-address-actions{justify-content:flex-start;margin-top:10px}.customer-order-head{align-items:flex-start;flex-direction:column}}

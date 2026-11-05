@@ -84,3 +84,15 @@ La recuperación por correo de Guillermo no se activa en esta entrega: el proyec
 ### Alcance de los avisos
 
 Los avisos de estado se muestran en tiempo real aproximado mientras la pantalla de seguimiento permanece abierta. Los avisos del dueño se muestran mientras el panel está abierto. Para avisos por correo o notificaciones push cuando la página está cerrada hace falta configurar un proveedor de correo o Web Push; esta actualización no finge que esos canales estén activos.
+
+
+## Acceso unificado y cuentas de cliente (1.4)
+
+- Dueño y cliente usan el mismo formulario de correo/contraseña; el servidor determina el rol desde la base de datos. El acceso del dueño no se publica como botón separado.
+- Google OAuth crea/verifica cuentas de clientes y también permite reconocer al administrador cuando Google confirma el correo administrador configurado.
+- El primer inicio del administrador solicita un único cambio inicial de contraseña. Después, la recuperación requiere un enlace de un solo uso enviado por correo.
+- Para habilitar recuperación por correo configura `RESEND_API_KEY` y `MAIL_FROM` en Railway. El dominio remitente debe estar verificado en Resend.
+- El cliente puede guardar perfil, nombre de usuario, teléfono, varias direcciones con etiquetas, dirección principal e historial con detalle y resumen de compra.
+- Los resúmenes de compra no son facturas electrónicas tributarias. Para emitir factura electrónica se requiere integración con un proveedor autorizado y la DIAN.
+
+Callback OAuth para el dominio de producción actual: `https://agui-production-c6f6.up.railway.app/auth/google/callback`. Registra esa URL exacta en Google Cloud Console y configura `BASE_URL`, `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en Railway. Para recuperación de contraseña, configura `RESEND_API_KEY` y un `MAIL_FROM` verificado en Resend.

@@ -1,0 +1,26 @@
+AGUI REPPOSTERIA Y AREPAS - ACTUALIZACION 1.4
+
+CAMBIOS PRINCIPALES
+1. Acceso unificado: clientes y administrador entran desde la misma pantalla con correo y contraseña o Google. El backend identifica el rol por el correo/registro de la base de datos; no hay selector ni botón público de "Acceso del dueño".
+2. Google OAuth: la cuenta Google debe tener correo verificado. Si el correo coincide con el administrador activo, el servidor abre el panel administrativo; si no, crea/inicia la cuenta de cliente.
+3. Cambio inicial del dueño: al primer acceso después de esta actualización se solicita una única vez una contraseña nueva (mínimo 12 caracteres). La contraseña actual se conserva hasta que el administrador complete el cambio. Después, el cambio requiere recuperación por enlace enviado al correo.
+4. Recuperación de contraseña: se envía un enlace de un solo uso, válido 30 minutos. Nunca se envía la contraseña existente por correo.
+5. Cuenta de cliente: perfil con nombre, nombre de usuario y teléfono; el cliente puede guardar una contraseña para futuros inicios de sesión.
+6. Direcciones: permite guardar varias direcciones con etiquetas propias, elegir una principal y eliminar direcciones.
+7. Pedidos: historial de pedidos asociados a la cuenta, detalle de productos, importes, estado y botón para actualizar seguimiento. Se muestran comprobantes/resúmenes de compra; no son facturas electrónicas tributarias.
+8. Direcciones guardadas: se pueden seleccionar en el formulario de domicilio y se autocompletan los datos.
+9. Migraciones aditivas: agrega columnas/tablas necesarias sin borrar cuentas, pedidos, productos ni contraseñas existentes.
+
+CONFIGURACION REQUERIDA EN RAILWAY
+- BASE_URL=https://agui-production-c6f6.up.railway.app
+- GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET: credenciales OAuth de Google.
+- GOOGLE_CALLBACK_URL=https://agui-production-c6f6.up.railway.app/auth/google/callback
+- En Google Cloud Console, autorizar ese callback exacto.
+- RESEND_API_KEY: API key de Resend para correo de recuperación.
+- MAIL_FROM: remitente de correo verificado en Resend, por ejemplo AGUI <no-reply@tu-dominio-verificado.com>.
+
+IMPORTANTE
+- No subir .env, contraseñas, claves privadas ni node_modules.
+- Mantener las variables actuales de MySQL y SESSION_SECRET en Railway.
+- Las migraciones se ejecutan al iniciar el servidor. No ejecutar npm run setup:db en producción para esta actualización.
+- npm run check valida la sintaxis de server.js, init-db.js y public/js/app.js.

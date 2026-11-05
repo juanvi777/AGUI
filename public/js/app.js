@@ -6,7 +6,7 @@ const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', curre
 const AGUI_CONTACT = Object.freeze({ phone: '3122405580', whatsapp: '573122405580', address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia' });
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const safeImage = value => /^\/(assets|uploads)\/[a-zA-Z0-9_./-]+$/.test(String(value || '')) ? value : '/assets/cover.jpg';
-const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], adminTables: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer', tableContext: null, trackingToken: null, trackingTimer: null, adminPollTimer: null, adminSeenOrderIds: null, lastTrackedStatus: null, game: { cells: Array(9).fill(''), over: false } };
+const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], adminTables: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer', customerAddresses: [], customerOrders: [], resetToken: null, adminPasswordResolve: null, tableContext: null, trackingToken: null, trackingTimer: null, adminPollTimer: null, adminSeenOrderIds: null, lastTrackedStatus: null, game: { cells: Array(9).fill(''), over: false } };
 
 function toast(message, type = 'info') {
   const el = $('#toast'); if (!el) return;
@@ -141,7 +141,7 @@ function openCheckout() {
   $('#orderSuccess').classList.add('hidden'); $('#checkoutForm').classList.remove('hidden');
   configureCheckoutMode();
   if (!state.tableContext && !state.customer) {
-    renderCustomerAccount(); setAuthMode('customer'); openOverlay('customerAuthOverlay');
+    renderCustomerAccount(); openOverlay('customerAuthOverlay');
   }
 }
 
@@ -166,63 +166,79 @@ function renderCustomerAccount() {
     $('#customerNameDisplay').textContent = customer.full_name || 'cliente';
     $('#customerEmailDisplay').textContent = customer.email || '';
   }
-  if (state.authMode === 'customer') {
-    $('#customerAuthTitle').textContent = customer ? 'Tu cuenta de cliente' : ($('#authTabRegister').classList.contains('active') ? 'Crea tu cuenta' : 'Inicia sesión');
-    $('#customerAuthDescription').textContent = customer ? 'Tu sesión está activa. Puedes continuar con tu pedido.' : 'Entra a tu cuenta para hacer tus pedidos y guardar tus datos.';
-  }
-}
-function setAuthMode(mode = 'customer') {
-  state.authMode = mode === 'owner' ? 'owner' : 'customer';
-  const isOwner = state.authMode === 'owner';
-  $('#authRoleCustomer').classList.toggle('active', !isOwner);
-  $('#authRoleOwner').classList.toggle('active', isOwner);
-  $('#customerAuthPanel').classList.toggle('hidden', isOwner);
-  $('#ownerAuthPanel').classList.toggle('hidden', !isOwner);
-  $('#customerAuthTitle').textContent = isOwner ? 'Acceso del dueño' : (state.customer ? 'Tu cuenta de cliente' : ($('#authTabRegister').classList.contains('active') ? 'Crea tu cuenta' : 'Inicia sesión'));
-  $('#customerAuthDescription').textContent = isOwner ? 'Ingresa con el correo administrador y la contraseña privada del panel.' : (state.customer ? 'Tu sesión está activa. Puedes continuar con tu pedido.' : 'Entra a tu cuenta para hacer tus pedidos y guardar tus datos.');
 }
 function setCustomerAuthTab(tab) {
-  const isLogin = tab === 'login';
-  $('#authTabLogin').classList.toggle('active', isLogin);
-  $('#authTabRegister').classList.toggle('active', !isLogin);
-  $('#customerLoginForm').classList.toggle('hidden', !isLogin);
-  $('#customerRegisterForm').classList.toggle('hidden', isLogin);
-  if (state.authMode === 'customer') {
-    $('#customerAuthTitle').textContent = isLogin ? 'Inicia sesión' : 'Crea tu cuenta';
-    $('#customerAuthDescription').textContent = isLogin ? 'Entra a tu cuenta para hacer tus pedidos y guardar tus datos.' : 'Regístrate una sola vez para que tus pedidos queden asociados a tu nombre.';
-  }
+  $('#customerAuthTitle').textContent = tab === 'register' ? 'Crear cuenta con Google' : 'Inicia sesión';
+  $('#customerAuthDescription').textContent = tab === 'register' ? 'Usa tu cuenta de Google verificada para crear tu perfil AGUI.' : 'Ingresa con tu correo y contraseña o continúa con Google.';
 }
 function openCustomerAuth() {
-  renderCustomerAccount(); setAuthMode('customer'); openOverlay('customerAuthOverlay');
+  renderCustomerAccount();
+  if (state.customer) loadCustomerPortal().catch(e => toast(e.message));
+  openOverlay('customerAuthOverlay');
 }
 async function finishCustomerAuth(customer, message) {
-  state.customer = customer;
-  state.admin = null;
-  hideAdminScreen();
-  closeOverlay('customerAuthOverlay');
-  await loadStore();
-  renderCustomerAccount();
-  toast(message);
+  state.customer = customer; state.admin = null; hideAdminScreen(); closeOverlay('customerAuthOverlay');
+  await loadStore(); renderCustomerAccount(); await loadCustomerPortal().catch(e => toast(e.message)); toast(message);
 }
-async function customerLogin(event) {
-  event.preventDefault(); const form = event.currentTarget; const btn = $('button[type="submit"]', form);
-  const data = Object.fromEntries(new FormData(form)); btn.disabled = true; btn.textContent = 'Ingresando…';
-  try { const result = await api('/api/auth/customer/login', { method:'POST', body:JSON.stringify(data) }); form.reset(); await finishCustomerAuth(result.customer, `Bienvenido, ${result.customer.full_name}.`); }
-  catch (e) { toast(e.message); }
-  finally { btn.disabled = false; btn.innerHTML = 'Entrar a mi cuenta <span>→</span>'; }
-}
-async function customerRegister(event) {
+async function unifiedLogin(event) {
   event.preventDefault(); const form = event.currentTarget; const data = Object.fromEntries(new FormData(form));
-  if (data.password !== data.password_confirm) return toast('Las contraseñas no coinciden.');
-  const btn = $('button[type="submit"]', form); btn.disabled = true; btn.textContent = 'Creando cuenta…'; delete data.password_confirm;
-  try { const result = await api('/api/auth/customer/register', { method:'POST', body:JSON.stringify(data) }); form.reset(); await finishCustomerAuth(result.customer, `Cuenta creada. ¡Bienvenido, ${result.customer.full_name}!`); }
-  catch (e) { toast(e.message); }
-  finally { btn.disabled = false; btn.innerHTML = 'Crear cuenta y continuar <span>→</span>'; }
+  const btn = $('button[type="submit"]', form); btn.disabled = true; btn.textContent = 'Verificando acceso…';
+  try {
+    const result = await api('/api/auth/login', { method:'POST', body:JSON.stringify(data) }); form.reset();
+    if (result.role === 'admin') {
+      state.admin = result.admin; state.customer = null; closeOverlay('customerAuthOverlay'); renderCustomerAccount();
+      if (result.mustChangePassword && !(await firstAdminPasswordChange())) return;
+      showAdminScreen();
+      toast('Bienvenido al panel de AGUI.', 'success');
+    } else await finishCustomerAuth(result.customer, `Bienvenido, ${result.customer.full_name}.`);
+  } catch (e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = 'Iniciar sesión <span>→</span>'; }
+}
+function firstAdminPasswordChange() {
+  openOverlay('adminFirstPasswordOverlay');
+  return new Promise(resolve => { state.adminPasswordResolve = resolve; });
+}
+async function submitFirstAdminPassword(event) {
+  event.preventDefault(); const form=event.currentTarget; const data=Object.fromEntries(new FormData(form));
+  const btn=$('button[type="submit"]',form);btn.disabled=true;btn.textContent='Guardando…';
+  try { await api('/api/auth/admin/first-password-change',{method:'POST',body:JSON.stringify(data)});closeOverlay('adminFirstPasswordOverlay');form.reset();toast('Contraseña inicial actualizada. Guárdala en un lugar seguro.','success');const resolve=state.adminPasswordResolve;state.adminPasswordResolve=null;if(resolve)resolve(true); }
+  catch(e){toast(e.message,'error');}
+  finally{btn.disabled=false;btn.textContent='Guardar contraseña segura';}
 }
 async function customerLogout() {
-  try { await api('/api/auth/customer/logout', { method:'POST' }); state.customer = null; await loadStore(); setCustomerAuthTab('login'); toast('Has cerrado tu sesión.'); }
+  try { await api('/api/auth/customer/logout', { method:'POST' }); state.customer = null; state.customerAddresses=[]; state.customerOrders=[]; await loadStore(); toast('Has cerrado tu sesión.'); }
   catch (e) { toast(e.message); }
 }
+function renderCustomerAddresses() {
+  const host=$('#customerAddressList'); if(!host)return;
+  host.innerHTML=state.customerAddresses.length?state.customerAddresses.map(a=>`<article class="customer-address-card"><div><b>${escapeHtml(a.label)}</b>${a.is_default?'<span class="status-badge status-ready">Principal</span>':''}<p>${escapeHtml(a.recipient)} · ${escapeHtml(a.phone)}<br>${escapeHtml(a.address)} · ${escapeHtml(a.zone)}</p>${a.notes?`<small>${escapeHtml(a.notes)}</small>`:''}</div><div class="customer-address-actions">${!a.is_default?`<button class="mini-btn" data-address-default="${Number(a.id)}">Usar como principal</button>`:''}<button class="mini-btn danger" data-address-delete="${Number(a.id)}">Eliminar</button></div></article>`).join(''):'<p class="subtle-note">Todavía no tienes direcciones guardadas.</p>';
+}
+function renderCustomerOrders() {
+  const host=$('#customerOrderList'); if(!host)return;
+  host.innerHTML=state.customerOrders.length?state.customerOrders.map(o=>`<article class="customer-order-card"><div class="customer-order-head"><b>${escapeHtml(o.order_number)}</b><span class="status-badge status-${escapeHtml(o.status)}">${escapeHtml(orderStatusLabel(o.status))}</span></div><small>${new Date(o.created_at).toLocaleString('es-CO')} · ${o.order_type==='table'?`Mesa ${escapeHtml(o.table_label||'')}`:'Domicilio'}</small><ul>${(o.items||[]).map(i=>`<li>${escapeHtml(i.product_name)} × ${Number(i.quantity)} <span>${money(i.line_total)}</span></li>`).join('')}</ul><div class="customer-receipt-total"><span>Subtotal ${money(o.subtotal)}${o.shipping_cost==null?' · envío por confirmar':` · envío ${money(o.shipping_cost)}`}</span><b>${o.total==null?'Total por confirmar':money(o.total)}</b></div><small>Estado: ${escapeHtml(orderStatusLabel(o.status))}</small><button type="button" class="mini-btn" data-order-track="${escapeHtml(o.tracking_token||'')}">Actualizar seguimiento</button></article>`).join(''):'<p class="subtle-note">Aún no tienes pedidos asociados a esta cuenta.</p>';
+}
+function renderSavedCheckoutAddresses(){
+  const field=$('#savedAddressField'),select=$('#savedAddressSelect');if(!field||!select)return;
+  field.classList.toggle('hidden',!state.customer||!state.customerAddresses.length||Boolean(state.tableContext));
+  select.innerHTML='<option value="">Selecciona una dirección guardada</option>'+state.customerAddresses.map(a=>`<option value="${Number(a.id)}">${escapeHtml(a.label)}${a.is_default?' · Principal':''}</option>`).join('');
+  const preferred=state.customerAddresses.find(a=>a.is_default)||state.customerAddresses[0];
+  const checkout=$('#checkoutForm');
+  if(preferred&&checkout&&!state.tableContext){select.value=String(preferred.id);if(!checkout.elements.delivery_address.value){checkout.elements.customer_name.value=preferred.recipient;checkout.elements.customer_phone.value=preferred.phone;checkout.elements.delivery_zone.value=preferred.zone;checkout.elements.delivery_address.value=preferred.address;checkout.elements.delivery_notes.value=preferred.notes||'';}}
+}
+async function loadCustomerPortal() {
+  if(!state.customer)return;
+  const [profile,addresses,orders]=await Promise.all([api('/api/customer/profile'),api('/api/customer/addresses'),api('/api/customer/orders')]);
+  state.customer={...state.customer,...profile}; state.customerAddresses=addresses; state.customerOrders=orders;
+  const form=$('#customerProfileForm'); if(form){form.elements.full_name.value=profile.full_name||'';form.elements.username.value=profile.username||'';form.elements.phone.value=profile.phone||'';form.elements.new_password.value='';form.elements.confirm_password.value='';}
+  const zone=$('#customerAddressZone'); if(zone)zone.innerHTML='<option value="">Selecciona una zona</option>'+(state.config?.zones||[]).map(z=>`<option value="${escapeHtml(z.name)}">${escapeHtml(z.name)}</option>`).join('');
+  renderCustomerAddresses();renderCustomerOrders();renderSavedCheckoutAddresses();renderCustomerAccount();
+}
+async function saveCustomerProfile(event){event.preventDefault();const form=event.currentTarget;try{const result=await api('/api/customer/profile',{method:'PATCH',body:JSON.stringify(Object.fromEntries(new FormData(form)))});state.customer={...state.customer,...result};renderCustomerAccount();toast('Perfil actualizado.','success');}catch(e){toast(e.message,'error');}}
+async function saveCustomerAddress(event){event.preventDefault();const form=event.currentTarget;try{await api('/api/customer/addresses',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});form.reset();await loadCustomerPortal();toast('Dirección guardada.','success');}catch(e){toast(e.message,'error');}}
+async function handleCustomerAddressAction(button){const id=Number(button.dataset.addressDelete||button.dataset.addressDefault);try{if(button.dataset.addressDelete){if(!await askConfirmation({title:'Eliminar dirección',message:'Esta dirección dejará de estar guardada en tu cuenta.',acceptLabel:'Eliminar',danger:true}))return;await api(`/api/customer/addresses/${id}`,{method:'DELETE'});}else await api(`/api/customer/addresses/${id}/default`,{method:'PATCH'});await loadCustomerPortal();toast('Direcciones actualizadas.','success');}catch(e){toast(e.message,'error');}}
+async function refreshCustomerOrderStatus(button){const token=button.dataset.orderTrack;if(!token)return;try{const latest=await api(`/api/orders/track/${encodeURIComponent(token)}`);const order=state.customerOrders.find(o=>o.tracking_token===token);if(order)order.status=latest.status;renderCustomerOrders();toast(`Pedido ${latest.order_number}: ${orderStatusLabel(latest.status)}.`,'success');}catch(e){toast(e.message,'error');}}
+async function requestPasswordReset(event){event.preventDefault();const form=event.currentTarget;try{const result=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});toast(result.message,'success');closeOverlay('passwordResetOverlay');form.reset();}catch(e){toast(e.message,'error');}}
+async function submitPasswordReset(event){event.preventDefault();const form=event.currentTarget;try{const data=Object.fromEntries(new FormData(form));data.token=state.resetToken;const result=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify(data)});toast(result.message,'success');state.resetToken=null;history.replaceState({},'',location.pathname+location.hash);closeOverlay('passwordResetOverlay');form.reset();openCustomerAuth();}catch(e){toast(e.message,'error');}}
 
 async function loadStore() {
   try {
@@ -235,12 +251,8 @@ async function loadStore() {
     const footerTagline = $('.footer-tagline'); if (footerTagline) footerTagline.textContent = config.tagline || 'El mejor sabor, en cada bocado.';
     renderProducts(); renderCategories(); renderZones(); renderCart();
     renderCustomerAccount();
-    const googleOnly = Boolean(config.requireGoogleLogin);
-    $('#customerAuthForms').classList.toggle('google-only', googleOnly);
-    $('#authTabLogin').classList.toggle('hidden', googleOnly); $('#authTabRegister').classList.toggle('hidden', googleOnly);
-    $('#customerLoginForm').classList.toggle('hidden', googleOnly || !$('#authTabLogin').classList.contains('active'));
-    $('#customerRegisterForm').classList.toggle('hidden', googleOnly || $('#authTabLogin').classList.contains('active'));
-    $('#googleLoginModal').classList.toggle('hidden', !config.googleLoginConfigured);
+    $('#googleLoginModal').classList.remove('hidden');
+    $('#googleRegister').classList.remove('hidden');
     $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
     $('#postOrderGoogle').classList.toggle('hidden', !config.googleLoginConfigured);
     if (me.customer) {
@@ -261,25 +273,17 @@ async function loadStore() {
       $('#checkoutLoginTrigger').classList.remove('hidden');
       $('#googleLogin').classList.toggle('hidden', !config.googleLoginConfigured);
       $('#googleSetupNote').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
-      $('#googleLoginModal').classList.toggle('hidden', !config.googleLoginConfigured);
       $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
       $('#checkoutForm').classList.add('login-required-form');
     }
     if (state.tableContext) configureCheckoutMode();
-    if (state.admin) showAdminScreen();
+    if (state.admin) { const ready = !me.admin.mustChangePassword || await firstAdminPasswordChange(); if (ready) showAdminScreen(); else hideAdminScreen(); }
+    else if (state.customer) loadCustomerPortal().catch(e => console.warn('No se pudo cargar el perfil:', e.message));
   } catch (e) {
     $('#productGrid').innerHTML = `<div class="loading-card">No fue posible conectar con la tienda. ${escapeHtml(e.message)}<br><small>Verifica que el servidor y MySQL estén encendidos.</small></div>`;
   }
 }
 
-function showAdminLogin() { renderCustomerAccount(); setAuthMode('owner'); openOverlay('customerAuthOverlay'); }
-async function adminLogin(event) {
-  event.preventDefault(); const form = event.currentTarget; const data = Object.fromEntries(new FormData(form));
-  const btn = $('button[type="submit"]', form); btn.disabled = true; btn.textContent = 'Ingresando…';
-  try { state.admin = (await api('/api/auth/admin/login', { method:'POST', body:JSON.stringify(data) })).admin; state.customer = null; renderCustomerAccount(); closeOverlay('customerAuthOverlay'); showAdminScreen(); await loadAdminOverview(); toast('Bienvenido al panel de AGUI.', 'success'); }
-  catch (e) { toast(e.message); }
-  finally { btn.disabled = false; btn.innerHTML = 'Entrar al panel <span>→</span>'; }
-}
 function showAdminScreen() {
   $('#adminScreen').classList.remove('hidden');
   $('#adminIdentity').textContent = state.admin?.email || 'Administrador';
@@ -622,15 +626,18 @@ function initEvents() {
   $('#goCheckout').addEventListener('click',()=>{if(!state.cart.length)return;state.checkoutItems=null;closeOverlay('cartOverlay');openCheckout();});
   $('#customerAccount').addEventListener('click',openCustomerAuth);
   $('#checkoutLoginTrigger').addEventListener('click',openCustomerAuth);
-  $('#authTabLogin').addEventListener('click',()=>setCustomerAuthTab('login'));
-  $('#authTabRegister').addEventListener('click',()=>setCustomerAuthTab('register'));
-  $('#customerLoginForm').addEventListener('submit',customerLogin);
-  $('#customerRegisterForm').addEventListener('submit',customerRegister);
+  $('#unifiedLoginForm').addEventListener('submit',unifiedLogin);
+  $('#customerProfileForm').addEventListener('submit',saveCustomerProfile);
+  $('#customerAddressForm').addEventListener('submit',saveCustomerAddress);
+  $('#customerAddressList').addEventListener('click',e=>{const b=e.target.closest('[data-address-delete],[data-address-default]');if(b)handleCustomerAddressAction(b);});
+  $('#customerOrderList').addEventListener('click',e=>{const b=e.target.closest('[data-order-track]');if(b)refreshCustomerOrderStatus(b);});
+  $('#savedAddressSelect').addEventListener('change',e=>{const a=state.customerAddresses.find(x=>Number(x.id)===Number(e.target.value));if(!a)return;const f=$('#checkoutForm');f.elements.customer_name.value=a.recipient;f.elements.customer_phone.value=a.phone;f.elements.delivery_zone.value=a.zone;f.elements.delivery_address.value=a.address;f.elements.delivery_notes.value=a.notes||'';});
+  $('#forgotPasswordLink').addEventListener('click',e=>{e.preventDefault();$('#forgotPasswordForm').classList.remove('hidden');$('#resetPasswordForm').classList.add('hidden');openOverlay('passwordResetOverlay');});
+  $('#forgotPasswordForm').addEventListener('submit',requestPasswordReset);
+  $('#resetPasswordForm').addEventListener('submit',submitPasswordReset);
+  $('#adminFirstPasswordForm').addEventListener('submit',submitFirstAdminPassword);
   $('#customerLogout').addEventListener('click',customerLogout);
   ['heroWhatsapp','footerWhatsapp'].forEach(id=>$('#'+id).addEventListener('click',()=>openWhatsApp('Hola, AGUI. Quisiera consultar por sus productos y disponibilidad.')));
-  $('#footerOwner').addEventListener('click',showAdminLogin);
-  $('#authRoleCustomer').addEventListener('click',()=>setAuthMode('customer'));$('#authRoleOwner').addEventListener('click',()=>setAuthMode('owner'));
-  $('#adminLoginForm').addEventListener('submit',adminLogin);
   $('#acceptActionConfirm').addEventListener('click',()=>finishConfirmation(true));$('#cancelActionConfirm').addEventListener('click',()=>finishConfirmation(false));$('#adminLogout').addEventListener('click',adminLogout);$('#adminClose').addEventListener('click',hideAdminScreen);
   $('#refreshDashboard').addEventListener('click',()=>loadAdminOverview().then(()=>toast('Resumen actualizado.')).catch(e=>toast(e.message)));
   $('#refreshOrders').addEventListener('click',()=>loadAdminOrders().catch(e=>toast(e.message)));$('#refreshZones').addEventListener('click',()=>loadAdminZones().catch(e=>toast(e.message)));
@@ -645,9 +652,9 @@ function initEvents() {
   $('#orderStatusFilter').addEventListener('change',()=>loadAdminOrders().catch(e=>toast(e.message)));
   $('#adminOrderTable').addEventListener('change',e=>{const el=e.target.closest('[data-order-status]');if(el)updateOrderStatus(Number(el.dataset.orderStatus),el.value);});
   $('#adminOrderTable').addEventListener('click',e=>{const el=e.target.closest('[data-order-status]');if(el)el.dataset.previous=el.value;});
-  ['googleLogin','googleLoginModal'].forEach(id=>$('#'+id).addEventListener('click',e=>{if(!state.config?.googleLoginConfigured)e.preventDefault();}));
-  $$('.overlay').forEach(overlay=>overlay.addEventListener('click',e=>{if(e.target===overlay){if(overlay.id==='actionConfirmOverlay')finishConfirmation(false);else overlay.classList.add('hidden');}}));
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('#actionConfirmOverlay').classList.contains('hidden'))finishConfirmation(false);$$('.overlay').forEach(o=>o.classList.add('hidden'));}});
+  ['googleLogin','googleLoginModal','googleRegister','postOrderGoogle'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('click',e=>{if(!state.config?.googleLoginConfigured){e.preventDefault();toast('El acceso con Google aún no está configurado por AGUI.','error');}});});
+  $$('.overlay').forEach(overlay=>overlay.addEventListener('click',e=>{if(e.target===overlay){if(overlay.id==='actionConfirmOverlay')finishConfirmation(false);else if(overlay.id!=='adminFirstPasswordOverlay')overlay.classList.add('hidden');}}));
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('#actionConfirmOverlay').classList.contains('hidden'))finishConfirmation(false);$$('.overlay').forEach(o=>{if(o.id!=='adminFirstPasswordOverlay')o.classList.add('hidden');});}});
 }
 
 async function boot() {
@@ -660,6 +667,8 @@ async function boot() {
     toast(notices[params.get('notice')] || ''); history.replaceState({},'',location.pathname+location.hash);
   }
   if(params.get('login')==='ok') { toast('Iniciaste sesión con Google.'); history.replaceState({},'',location.pathname+location.hash); }
+  if(params.get('login')==='admin') { toast('Acceso de administrador verificado con Google.','success'); history.replaceState({},'',location.pathname+location.hash); await loadStore(); }
+  if(params.has('reset')) { state.resetToken=params.get('reset'); $('#forgotPasswordForm').classList.add('hidden'); $('#resetPasswordForm').classList.remove('hidden'); openOverlay('passwordResetOverlay'); }
   if (state.tableContext) { configureCheckoutMode(); $('#cartOpen').setAttribute('aria-label', `Carrito · ${state.tableContext.label}`); }
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   window.setTimeout(() => { const splash = $('#aguiSplash'); if (splash) { splash.classList.add('splash-hidden'); window.setTimeout(() => splash.remove(), 700); } }, 1100);
