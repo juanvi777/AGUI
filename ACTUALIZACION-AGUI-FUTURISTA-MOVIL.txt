@@ -1,0 +1,32 @@
+AGUI 1.3 — ACTUALIZACIÓN FUTURISTA Y MÓVIL
+
+CAMBIOS
+- Rediseño visual de la tienda con una estética futurista cálida: cacao oscuro, naranja luminoso, cobre, brillos suaves y superficies tipo vidrio.
+- Diseño adaptable para celulares pequeños, celulares grandes, tabletas y escritorio.
+- Menú móvil mejorado y navegación con acceso a Contacto.
+- Nueva sección de contacto con mapa, llamada telefónica y WhatsApp.
+- Botón flotante de pedidos por WhatsApp.
+- Contacto predeterminado: Cra. 52 No. 56 A-54, Vegachí, Antioquia.
+- Teléfono y WhatsApp: 312 240 5580 (+57 312 240 5580).
+- La configuración del negocio y el flujo de pedidos conservan el comportamiento existente; los datos nuevos son valores predeterminados si la base de datos todavía no tiene esos datos.
+- Caché PWA actualizada para cargar la nueva hoja de estilos.
+
+CÓMO APLICAR EN WINDOWS
+1. Haz una copia de seguridad de C:\proyectos\AGUI\agui-store.
+2. Extrae el contenido de este ZIP directamente dentro de C:\proyectos\AGUI\agui-store y acepta reemplazar los archivos cuando Windows lo solicite.
+3. IMPORTANTE: esta actualización no incluye el archivo .env. Conserva el .env que ya tienes en tu carpeta; no lo reemplaces ni lo subas a GitHub.
+4. Abre PowerShell en C:\proyectos\AGUI\agui-store y ejecuta:
+   npm run check
+5. Si la comprobación termina sin errores, publica los cambios:
+   git status
+   git add public/index.html public/css/future.css public/js/app.js public/sw.js public/manifest.webmanifest server.js init-db.js .env.example
+   git commit -m "Rediseño futurista y optimización móvil de AGUI"
+   git push origin main
+6. Railway iniciará el despliegue si sigue conectado a GitHub.
+7. Después del despliegue, prueba catálogo, imágenes, menú móvil, carrito, registro, compra, llamada y WhatsApp.
+
+IMPORTANTE
+- No hace falta ejecutar npm run setup:db para aplicar este rediseño: no se modificó el esquema de las tablas.
+- No borres ni recrees el servicio MySQL ni su volumen.
+- Este paquete prepara el código; no lo publica automáticamente en GitHub ni en Railway.
+- El ZIP original incluía un archivo .env, por eso no se redistribuye en esta actualización. Si contenía contraseñas reales y fue compartido, cambia esas credenciales y el SESSION_SECRET.

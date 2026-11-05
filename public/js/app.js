@@ -6,7 +6,7 @@ const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', curre
 const AGUI_CONTACT = Object.freeze({ phone: '3122405580', whatsapp: '573122405580', address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia' });
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const safeImage = value => /^\/(assets|uploads)\/[a-zA-Z0-9_./-]+$/.test(String(value || '')) ? value : '/assets/cover.jpg';
-const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer' };
+const state = { products: [], categories: ['Todos'], config: null, cart: [], currentCategory: 'Todos', adminProducts: [], adminOrders: [], adminZones: [], adminTables: [], customer: null, checkoutItems: null, admin: null, toastTimer: null, confirmResolve: null, authMode: 'customer', tableContext: null, trackingToken: null, trackingTimer: null, adminPollTimer: null, adminSeenOrderIds: null, lastTrackedStatus: null, game: { cells: Array(9).fill(''), over: false } };
 
 function toast(message, type = 'info') {
   const el = $('#toast'); if (!el) return;
@@ -113,15 +113,38 @@ function addToCart(id) {
   state.checkoutItems = null;
   saveCart(); renderCart(); toast(`${p.name} agregado al carrito.`);
 }
+function configureCheckoutMode() {
+  const isTable = Boolean(state.tableContext);
+  $('#googleBox').classList.toggle('hidden', isTable || Boolean(state.customer));
+  $('#tableOrderBanner').classList.toggle('hidden', !isTable);
+  $('#tableOrderLabel').textContent = state.tableContext?.label || 'tu mesa';
+  $('#checkoutTitle').textContent = isTable ? `Pedido · ${state.tableContext.label}` : (state.checkoutItems ? 'Comprar producto' : 'Datos de entrega');
+  $('#checkoutDescription').textContent = isTable ? 'Tu pedido llegará directamente a esta mesa.' : 'Para domicilios necesitamos tu cuenta de Google y los datos de entrega.';
+  const hiddenFields = isTable ? ['phone','email','zone','payment','address','notes'] : [];
+  $$('[data-checkout-field]').forEach(label => {
+    const hide = hiddenFields.includes(label.dataset.checkoutField);
+    label.classList.toggle('hidden', hide);
+    const input = label.querySelector('input,select,textarea');
+    if (input) input.required = !hide && ['name','phone','zone','payment','address'].includes(label.dataset.checkoutField);
+  });
+  if (isTable) {
+    $('#checkoutForm').classList.remove('login-required-form');
+    $('#checkoutForm').elements.customer_name.value = '';
+  } else if (!state.customer) {
+    $('#checkoutForm').classList.add('login-required-form');
+  } else {
+    $('#checkoutForm').classList.remove('login-required-form');
+  }
+}
 function openCheckout() {
   renderCheckoutSummary(); openOverlay('checkoutOverlay');
   $('#orderSuccess').classList.add('hidden'); $('#checkoutForm').classList.remove('hidden');
-  $('#checkoutTitle').textContent = state.checkoutItems ? 'Comprar producto' : 'Datos de entrega';
-  if (!state.customer) {
-    $('#googleBox').classList.remove('hidden'); $('#checkoutForm').classList.add('login-required-form');
-    renderCustomerAccount(); openOverlay('customerAuthOverlay');
-  } else { $('#checkoutForm').classList.remove('login-required-form'); }
+  configureCheckoutMode();
+  if (!state.tableContext && !state.customer) {
+    renderCustomerAccount(); setAuthMode('customer'); openOverlay('customerAuthOverlay');
+  }
 }
+
 function buyNow(id) {
   const p = productById(id); if (!p) return;
   state.checkoutItems = [{ id:Number(id), quantity:1 }];
@@ -212,6 +235,14 @@ async function loadStore() {
     const footerTagline = $('.footer-tagline'); if (footerTagline) footerTagline.textContent = config.tagline || 'El mejor sabor, en cada bocado.';
     renderProducts(); renderCategories(); renderZones(); renderCart();
     renderCustomerAccount();
+    const googleOnly = Boolean(config.requireGoogleLogin);
+    $('#customerAuthForms').classList.toggle('google-only', googleOnly);
+    $('#authTabLogin').classList.toggle('hidden', googleOnly); $('#authTabRegister').classList.toggle('hidden', googleOnly);
+    $('#customerLoginForm').classList.toggle('hidden', googleOnly || !$('#authTabLogin').classList.contains('active'));
+    $('#customerRegisterForm').classList.toggle('hidden', googleOnly || $('#authTabLogin').classList.contains('active'));
+    $('#googleLoginModal').classList.toggle('hidden', !config.googleLoginConfigured);
+    $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
+    $('#postOrderGoogle').classList.toggle('hidden', !config.googleLoginConfigured);
     if (me.customer) {
       const box = $('#googleBox');
       box.querySelector('b').textContent = `Sesión iniciada: ${me.customer.full_name}`;
@@ -226,7 +257,7 @@ async function loadStore() {
       checkout.classList.remove('login-required-form');
     } else {
       $('#googleBox').classList.remove('hidden');
-      $('#checkoutLoginHint').textContent = 'Debes iniciar sesión o crear una cuenta antes de confirmar el pedido.';
+      $('#checkoutLoginHint').textContent = config.requireGoogleLogin ? 'Para domicilios, continúa con Google. Los pedidos desde mesa no necesitan cuenta.' : 'Inicia sesión o crea una cuenta para realizar un domicilio.';
       $('#checkoutLoginTrigger').classList.remove('hidden');
       $('#googleLogin').classList.toggle('hidden', !config.googleLoginConfigured);
       $('#googleSetupNote').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
@@ -234,6 +265,7 @@ async function loadStore() {
       $('#googleAuthHelp').classList.toggle('hidden', Boolean(config.googleLoginConfigured));
       $('#checkoutForm').classList.add('login-required-form');
     }
+    if (state.tableContext) configureCheckoutMode();
     if (state.admin) showAdminScreen();
   } catch (e) {
     $('#productGrid').innerHTML = `<div class="loading-card">No fue posible conectar con la tienda. ${escapeHtml(e.message)}<br><small>Verifica que el servidor y MySQL estén encendidos.</small></div>`;
@@ -252,25 +284,30 @@ function showAdminScreen() {
   $('#adminScreen').classList.remove('hidden');
   $('#adminIdentity').textContent = state.admin?.email || 'Administrador';
   loadAdminOverview().catch(e => toast(e.message));
+  if (state.adminPollTimer) clearInterval(state.adminPollTimer);
+  state.adminSeenOrderIds = null;
+  pollAdminOrders();
+  state.adminPollTimer = setInterval(pollAdminOrders, 18000);
 }
 function hideAdminScreen() { $('#adminScreen').classList.add('hidden'); }
 function switchAdminTab(tab) {
   $$('.admin-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.adminTab === tab));
-  const paneIds = { overview:'adminOverview', products:'adminProducts', orders:'adminOrders', delivery:'adminDelivery', settings:'adminSettings' };
+  const paneIds = { overview:'adminOverview', products:'adminProducts', orders:'adminOrders', tables:'adminTables', delivery:'adminDelivery', settings:'adminSettings' };
   Object.values(paneIds).forEach(id => $('#'+id).classList.add('hidden'));
   $('#'+paneIds[tab]).classList.remove('hidden');
-  const jobs = { overview:loadAdminOverview, products:loadAdminProducts, orders:loadAdminOrders, delivery:loadAdminZones, settings:loadAdminSettings };
+  const jobs = { overview:loadAdminOverview, products:loadAdminProducts, orders:loadAdminOrders, tables:loadAdminTables, delivery:loadAdminZones, settings:loadAdminSettings };
   if (jobs[tab]) jobs[tab]().catch(e => toast(e.message));
 }
 async function adminLogout() {
   try { await api('/api/auth/admin/logout', {method:'POST'}); } catch (_) {}
+  if (state.adminPollTimer) clearInterval(state.adminPollTimer); state.adminPollTimer = null; state.adminSeenOrderIds = null;
   state.admin = null; state.customer = null; renderCustomerAccount(); hideAdminScreen(); toast('Sesión del dueño cerrada.');
 }
-function statusLabel(status) { return ({pending:'Pendiente',confirmed:'Confirmado',preparing:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'})[status] || status; }
+function statusLabel(status) { return ({pending:'Pendiente',confirmed:'Confirmado',preparing:'Preparando',ready:'Listo para recoger',shipped:'En camino',delivered:'Entregado',cancelled:'Cancelado'})[status] || status; }
 function statusBadge(status) { return `<span class="status-badge status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>`; }
 function ordersTable(orders, compact = false) {
   if (!orders.length) return '<p class="subtle-note">Todavía no hay pedidos registrados.</p>';
-  return `<table class="admin-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Zona</th><th>Fecha</th><th>Estado</th>${compact ? '' : '<th>Detalle</th>'}</tr></thead><tbody>${orders.map(o => `<tr><td><strong>${escapeHtml(o.order_number)}</strong></td><td>${escapeHtml(o.customer_name)}<br><small>${escapeHtml(o.customer_phone)}</small></td><td>${escapeHtml(o.delivery_zone)}</td><td>${new Date(o.created_at).toLocaleDateString('es-CO')}</td><td>${statusBadge(o.status)}</td>${compact ? '' : `<td><details><summary>Ver pedido</summary><div class="order-detail"><p>${(o.items||[]).map(i=>`${escapeHtml(i.product_name)} × ${i.quantity}: ${money(i.line_total)}`).join('<br>')}</p><p><b>Subtotal:</b> ${money(o.subtotal)}<br><b>Entrega:</b> ${o.shipping_cost == null ? 'Por confirmar' : money(o.shipping_cost)}<br><b>Total:</b> ${o.total == null ? 'Por confirmar' : money(o.total)}</p><p>${escapeHtml(o.delivery_address)}<br>${escapeHtml(o.payment_method)}</p></div></details><label class="status-change">Cambiar estado <select data-order-status="${Number(o.id)}">${['pending','confirmed','preparing','ready','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}</select></label></td>`}</tr>`).join('')}</tbody></table>`;
+  return `<table class="admin-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Modalidad</th><th>Zona / Mesa</th><th>Fecha</th><th>Estado</th>${compact ? '' : '<th>Detalle</th>'}</tr></thead><tbody>${orders.map(o => `<tr><td><strong>${escapeHtml(o.order_number)}</strong></td><td>${escapeHtml(o.customer_name)}<br><small>${escapeHtml(o.customer_phone || 'Pedido sin registro')}</small></td><td>${o.order_type === 'table' ? 'En mesa' : 'Domicilio'}</td><td>${escapeHtml(o.order_type === 'table' ? (o.table_label || 'Mesa') : o.delivery_zone)}</td><td>${new Date(o.created_at).toLocaleDateString('es-CO')}</td><td>${statusBadge(o.status)}</td>${compact ? '' : `<td><details><summary>Ver pedido</summary><div class="order-detail"><p>${(o.items||[]).map(i=>`${escapeHtml(i.product_name)} × ${i.quantity}: ${money(i.line_total)}`).join('<br>')}</p><p><b>Subtotal:</b> ${money(o.subtotal)}<br><b>Entrega:</b> ${o.shipping_cost == null ? 'Por confirmar' : money(o.shipping_cost)}<br><b>Total:</b> ${o.total == null ? 'Por confirmar' : money(o.total)}</p><p>${escapeHtml(o.delivery_address || (o.table_label ? `Mesa ${o.table_label}` : ''))}<br>${escapeHtml(o.payment_method || '')}</p></div></details><label class="status-change">Cambiar estado <select data-order-status="${Number(o.id)}">${['pending','confirmed','preparing','ready','shipped','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}</select></label><button type="button" class="mini-btn" data-whatsapp-order="${Number(o.id)}">Avisar por WhatsApp</button></td>`}</tr>`).join('')}</tbody></table>`;
 }
 async function loadAdminOverview() {
   const data = await api('/api/admin/dashboard');
@@ -370,24 +407,193 @@ async function saveSettings(event) {
 }
 async function refreshPublicProducts() { state.products = await api('/api/products'); state.categories = await api('/api/categories'); renderCategories(); renderProducts(); renderCart(); }
 async function refreshPublicConfig() { state.config = await api('/api/config'); renderZones(); }
+function orderStatusLabel(status) {
+  return ({ pending:'Recibido · pendiente de confirmación', confirmed:'Confirmado por AGUI', preparing:'En preparación', ready:'Listo para recoger', shipped:'En camino a tu dirección', delivered:'Entregado', cancelled:'Cancelado' })[status] || status;
+}
+function startOrderTracking(token) {
+  state.trackingToken = token;
+  try { sessionStorage.setItem('agui_tracking_token', token); } catch (_) {}
+  state.lastTrackedStatus = null;
+  if (state.trackingTimer) clearInterval(state.trackingTimer);
+  const check = async () => {
+    if (!state.trackingToken) return;
+    try {
+      const info = await api(`/api/orders/track/${encodeURIComponent(state.trackingToken)}`);
+      $('#orderTrackingStatus').textContent = orderStatusLabel(info.status);
+      $('#orderTrackingHint').textContent = info.order_type === 'table'
+        ? `Pedido ${info.order_number} · Mesa ${info.table_label || ''}. Esta pantalla se actualiza automáticamente.`
+        : `Pedido ${info.order_number}. Esta pantalla se actualiza automáticamente.`;
+      if (state.lastTrackedStatus && state.lastTrackedStatus !== info.status) {
+        toast(`Actualización de AGUI: ${orderStatusLabel(info.status)}.`, 'success');
+        if ('Notification' in window && Notification.permission === 'granted') new Notification('Actualización de tu pedido AGUI', { body: orderStatusLabel(info.status) });
+      }
+      state.lastTrackedStatus = info.status;
+      if (['delivered','cancelled'].includes(info.status)) { clearInterval(state.trackingTimer); state.trackingTimer = null; }
+    } catch (_) { /* El seguimiento no debe interrumpir la confirmación del pedido. */ }
+  };
+  check();
+  state.trackingTimer = setInterval(check, 12000);
+}
+async function enableCustomerOrderAlerts() {
+  if (!("Notification" in window)) return toast('Este navegador no permite avisos del sistema. Mantén abierta esta pantalla para ver cambios de estado.');
+  const permission = await Notification.requestPermission();
+  toast(permission === 'granted' ? 'Avisos de estado activados.' : 'Los avisos del sistema no se autorizaron. Esta pantalla seguirá actualizándose.', permission === 'granted' ? 'success' : 'info');
+}
 async function checkoutSubmit(event) {
   event.preventDefault();
   const purchaseItems = activeCheckoutItems();
   if (!purchaseItems.length) return toast('Selecciona al menos un producto antes de continuar.');
-  if (!state.customer) { $('#googleBox').classList.remove('hidden'); openOverlay('customerAuthOverlay'); return toast('Inicia sesión o crea una cuenta antes de comprar.'); }
-  const form=event.currentTarget; const data=Object.fromEntries(new FormData(form));
-  data.items=purchaseItems.map(i=>({id:i.id,quantity:i.quantity}));
-  if (state.customer) { data.customer_email=data.customer_email || state.customer.email; data.customer_name=data.customer_name || state.customer.full_name; }
-  const btn=$('#submitOrder'); btn.disabled=true; btn.textContent='Registrando pedido…';
+  const isTable = Boolean(state.tableContext);
+  if (!isTable && !state.customer) {
+    if (state.config?.requireGoogleLogin) toast('Inicia sesión con Google para realizar un domicilio.');
+    $('#googleBox').classList.remove('hidden'); openOverlay('customerAuthOverlay'); return;
+  }
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  data.items = purchaseItems.map(i => ({ id:i.id, quantity:i.quantity }));
+  if (isTable) {
+    data.order_type = 'table'; data.table_token = state.tableContext.token;
+    data.customer_phone = ''; data.customer_email = ''; data.delivery_zone = '';
+    data.delivery_address = ''; data.payment_method = 'en_mesa';
+  } else {
+    data.order_type = 'delivery';
+    data.customer_email = state.customer.email;
+    data.customer_name = state.customer.full_name;
+  }
+  const btn = $('#submitOrder'); btn.disabled = true; btn.textContent = 'Registrando pedido…';
   try {
-    const result=await api('/api/orders',{method:'POST',body:JSON.stringify(data)});
-    $('#orderSuccessText').textContent=`Número de pedido: ${result.order_number}. ${result.notice}`;
-    $('#openOrderWhatsapp').href=result.whatsapp_url;
+    const result = await api('/api/orders', { method:'POST', body:JSON.stringify(data) });
+    $('#orderSuccessText').textContent = `${result.order_number}. ${result.notice}`;
+    $('#openOrderWhatsapp').href = result.whatsapp_url;
     $('#orderSuccess').classList.remove('hidden'); form.classList.add('hidden');
-    if (!state.checkoutItems) { state.cart=[]; saveCart(); renderCart(); }
+    $('#tableAfterOrder').classList.toggle('hidden', !isTable);
+    if (isTable) initTicTacToe();
+    startOrderTracking(result.tracking_token);
+    if (!state.checkoutItems) { state.cart = []; saveCart(); renderCart(); }
     state.checkoutItems = null;
-  } catch(e) { toast(e.message); }
-  finally { btn.disabled=false; btn.innerHTML='Registrar pedido y continuar a WhatsApp <span>↗</span>'; }
+  } catch (e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = 'Registrar pedido <span>↗</span>'; }
+}
+
+function ticTacToeWinner(board) {
+  const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  for (const line of lines) if (board[line[0]] && line.every(i => board[i] === board[line[0]])) return board[line[0]];
+  return board.every(Boolean) ? 'draw' : null;
+}
+function renderTicTacToe() {
+  state.game.cells.forEach((value, i) => {
+    const cell = $(`[data-game-cell="${i}"]`);
+    cell.textContent = value;
+    cell.disabled = Boolean(value) || state.game.over;
+    cell.classList.toggle('game-x', value === 'X'); cell.classList.toggle('game-o', value === 'O');
+  });
+}
+function finishTicTacToe(outcome) {
+  state.game.over = true;
+  $('#ticTacToeStatus').textContent = outcome === 'X' ? '¡Ganaste! 🎉' : outcome === 'O' ? 'El bot ganó esta vez. ¡Otra partida!' : '¡Empate! Buena partida.';
+  renderTicTacToe();
+}
+function botMove() {
+  state.game.botThinking = false;
+  const board = state.game.cells;
+  const open = board.map((v,i) => v ? -1 : i).filter(i => i >= 0);
+  const chooseWinning = (mark) => open.find(i => { const test = [...board]; test[i] = mark; return ticTacToeWinner(test) === mark; });
+  let choice = chooseWinning('O');
+  if (choice === undefined) choice = chooseWinning('X');
+  if (choice === undefined && open.includes(4)) choice = 4;
+  if (choice === undefined) { const corners = open.filter(i => [0,2,6,8].includes(i)); if (corners.length) choice = corners[Math.floor(Math.random()*corners.length)]; }
+  if (choice === undefined && open.length) choice = open[Math.floor(Math.random()*open.length)];
+  if (choice !== undefined) board[choice] = 'O';
+  const winner = ticTacToeWinner(board);
+  if (winner) finishTicTacToe(winner);
+  else { $('#ticTacToeStatus').textContent = 'Tu turno · Eres X'; renderTicTacToe(); }
+}
+function playTicTacToe(index) {
+  if (state.game.over || state.game.botThinking || state.game.cells[index]) return;
+  state.game.cells[index] = 'X';
+  const winner = ticTacToeWinner(state.game.cells);
+  if (winner) return finishTicTacToe(winner);
+  state.game.botThinking = true; $('#ticTacToeStatus').textContent = 'El bot está pensando…'; renderTicTacToe();
+  window.setTimeout(botMove, 350);
+}
+function initTicTacToe() {
+  state.game = { cells:Array(9).fill(''), over:false, botThinking:false };
+  $('#ticTacToeStatus').textContent = 'Tú eres X · El bot es O';
+  renderTicTacToe();
+}
+
+function tableQrUrl(tableId) {
+  return `/api/admin/tables/${Number(tableId)}/qr.png`;
+}
+async function loadAdminTables() {
+  state.adminTables = await api('/api/admin/tables');
+  const host = $('#adminTableGrid');
+  host.innerHTML = state.adminTables.length ? state.adminTables.map(t => {
+    const qr = tableQrUrl(t.id);
+    return `<article class="table-qr-card"><div class="table-qr-image"><img src="${qr}" alt="Código QR de ${escapeHtml(t.label)}" loading="lazy"><span>${t.active ? 'ACTIVA' : 'INACTIVA'}</span></div><div class="table-qr-content"><label>Nombre de la mesa<input data-table-label="${Number(t.id)}" value="${escapeHtml(t.label)}" maxlength="80"></label><small>QR único · ID ${Number(t.id)}</small><div class="table-qr-actions"><a class="mini-btn" href="${qr}" download="AGUI-QR-${encodeURIComponent(t.label)}.png">Descargar QR</a><button class="mini-btn" type="button" data-save-table="${Number(t.id)}">Guardar nombre</button><button class="mini-btn danger" type="button" data-delete-table="${Number(t.id)}">Eliminar</button></div></div></article>`;
+  }).join('') : '<p class="empty-cart">Todavía no hay mesas. Agrega la primera para generar su código QR.</p>';
+}
+async function createTable(event) {
+  event.preventDefault(); const form = event.currentTarget; const label = form.elements.label.value.trim();
+  if (!label) return;
+  try { await api('/api/admin/tables', { method:'POST', body:JSON.stringify({label}) }); form.reset(); await loadAdminTables(); toast('Mesa creada y QR generado.', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function saveTable(id) {
+  const input = $(`[data-table-label="${id}"]`); if (!input) return;
+  try { await api(`/api/admin/tables/${id}`, { method:'PATCH', body:JSON.stringify({label:input.value,active:true}) }); await loadAdminTables(); toast('Mesa actualizada.'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function deleteTable(id) {
+  const confirmed = await askConfirmation({ title:'Eliminar mesa', message:'El QR de esta mesa dejará de funcionar. Los pedidos históricos conservarán el nombre de la mesa.', acceptLabel:'Eliminar mesa', danger:true });
+  if (!confirmed) return;
+  try { await api(`/api/admin/tables/${id}`, { method:'DELETE' }); await loadAdminTables(); toast('Mesa eliminada y QR invalidado.', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+function openOrderWhatsApp(orderId) {
+  const order = state.adminOrders.find(o => Number(o.id) === Number(orderId));
+  if (!order || !order.customer_phone) return toast('Este pedido no tiene teléfono de contacto registrado.');
+  const text = `Hola ${order.customer_name}, te escribe AGUI. Tu pedido ${order.order_number} está: ${orderStatusLabel(order.status)}. ¡Gracias por elegirnos!`;
+  const digits = String(order.customer_phone).replace(/\D/g,'');
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+}
+async function pollAdminOrders() {
+  if (!state.admin) return;
+  try {
+    const orders = await api('/api/admin/orders');
+    if (state.adminSeenOrderIds === null) {
+      state.adminSeenOrderIds = new Set(orders.map(o => Number(o.id)));
+      state.adminOrders = orders;
+      return;
+    }
+    const fresh = orders.filter(o => !state.adminSeenOrderIds.has(Number(o.id)));
+    for (const order of fresh) {
+      state.adminSeenOrderIds.add(Number(order.id));
+      const where = order.order_type === 'table' ? `Mesa ${order.table_label || ''}` : 'Domicilio';
+      toast(`¡Nuevo pedido ${where}: ${order.order_number}!`, 'success');
+      if ('Notification' in window && Notification.permission === 'granted') new Notification('Nuevo pedido en AGUI', { body:`${where} · ${order.customer_name} · ${order.order_number}` });
+    }
+    if (fresh.length) loadAdminOverview().catch(() => {});
+  } catch (_) { /* Mantiene el panel utilizable si la red falla. */ }
+}
+async function enableAdminAlerts() {
+  if (!('Notification' in window)) return toast('Este navegador no permite avisos de escritorio. El panel seguirá mostrando avisos dentro de AGUI.');
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') { $('#adminAlertHint').classList.remove('hidden'); toast('Avisos de nuevos pedidos activados.', 'success'); }
+  else toast('No se autorizó el aviso del navegador. Los avisos internos siguen activos.');
+}
+async function loadTableFromQr() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('mesa');
+  if (!token) return;
+  try {
+    const table = await api(`/api/tables/${encodeURIComponent(token)}`);
+    state.tableContext = { token, label: table.label };
+    toast(`¡Bienvenido! Estás pidiendo desde ${table.label}.`, 'success');
+    const intro = $('.hero-note');
+    if (intro) intro.innerHTML = `<span>✦</span> Pedido en mesa: <b>${escapeHtml(table.label)}</b> <span>·</span> Sin registro obligatorio`;
+    // Conservamos el parámetro mesa en la URL para que una recarga mantenga el contexto del QR.
+  } catch (e) { state.tableContext = null; toast(e.message, 'error'); }
 }
 
 function initEvents() {
@@ -405,6 +611,9 @@ function initEvents() {
     const show=e.target.closest('[data-show-product]');if(show){changeProductVisibility(Number(show.dataset.showProduct),true);return;}
     const del=e.target.closest('[data-delete-product]');if(del){deleteProductPermanently(Number(del.dataset.deleteProduct));return;}
     const saveZoneBtn=e.target.closest('[data-save-zone]');if(saveZoneBtn){saveZone(Number(saveZoneBtn.dataset.saveZone));return;}
+    const saveTableBtn=e.target.closest('[data-save-table]');if(saveTableBtn){saveTable(Number(saveTableBtn.dataset.saveTable));return;}
+    const deleteTableBtn=e.target.closest('[data-delete-table]');if(deleteTableBtn){deleteTable(Number(deleteTableBtn.dataset.deleteTable));return;}
+    const waOrder=e.target.closest('[data-whatsapp-order]');if(waOrder){openOrderWhatsApp(Number(waOrder.dataset.whatsappOrder));return;}
     const tab=e.target.closest('[data-admin-tab]');if(tab){switchAdminTab(tab.dataset.adminTab);return;}
     const switchTab=e.target.closest('[data-switch-tab]');if(switchTab){switchAdminTab(switchTab.dataset.switchTab);return;}
     const close=e.target.closest('[data-close]');if(close){if(close.dataset.close==='actionConfirmOverlay')finishConfirmation(false);else closeOverlay(close.dataset.close);return;}
@@ -427,6 +636,12 @@ function initEvents() {
   $('#refreshOrders').addEventListener('click',()=>loadAdminOrders().catch(e=>toast(e.message)));$('#refreshZones').addEventListener('click',()=>loadAdminZones().catch(e=>toast(e.message)));
   $('#newProduct').addEventListener('click',()=>editProduct());$('#cancelProductEdit').addEventListener('click',()=>$('#productEditor').classList.add('hidden'));$('#productForm').addEventListener('submit',saveProduct);
   $('#settingsForm').addEventListener('submit',saveSettings);$('#checkoutForm').addEventListener('submit',checkoutSubmit);
+  $('#newTableForm').addEventListener('submit',createTable); $('#refreshTables').addEventListener('click',()=>loadAdminTables().catch(e=>toast(e.message)));
+  $('#enableAdminAlerts').addEventListener('click',enableAdminAlerts);
+  $('#printTables').addEventListener('click',()=>window.print());
+  $('#resetTicTacToe').addEventListener('click',initTicTacToe);
+  $('#enableOrderAlerts').addEventListener('click',enableCustomerOrderAlerts);
+  $('#ticTacToe').addEventListener('click',e=>{const cell=e.target.closest('[data-game-cell]');if(cell)playTicTacToe(Number(cell.dataset.gameCell));});
   $('#orderStatusFilter').addEventListener('change',()=>loadAdminOrders().catch(e=>toast(e.message)));
   $('#adminOrderTable').addEventListener('change',e=>{const el=e.target.closest('[data-order-status]');if(el)updateOrderStatus(Number(el.dataset.orderStatus),el.value);});
   $('#adminOrderTable').addEventListener('click',e=>{const el=e.target.closest('[data-order-status]');if(el)el.dataset.previous=el.value;});
@@ -437,6 +652,7 @@ function initEvents() {
 
 async function boot() {
   loadCart(); initEvents();
+  await loadTableFromQr();
   await loadStore();
   const params=new URLSearchParams(location.search);
   if(params.has('notice')) {
@@ -444,6 +660,7 @@ async function boot() {
     toast(notices[params.get('notice')] || ''); history.replaceState({},'',location.pathname+location.hash);
   }
   if(params.get('login')==='ok') { toast('Iniciaste sesión con Google.'); history.replaceState({},'',location.pathname+location.hash); }
+  if (state.tableContext) { configureCheckoutMode(); $('#cartOpen').setAttribute('aria-label', `Carrito · ${state.tableContext.label}`); }
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   window.setTimeout(() => { const splash = $('#aguiSplash'); if (splash) { splash.classList.add('splash-hidden'); window.setTimeout(() => splash.remove(), 700); } }, 1100);
 }

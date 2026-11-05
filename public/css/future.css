@@ -352,3 +352,72 @@ input,select,textarea { font-size:16px; }
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto!important; animation:none!important; transition:none!important; }
 }
+
+/* AGUI QR tables, order updates and post-purchase experience */
+.dashboard-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.table-order-banner { display:flex; align-items:center; gap:12px; padding:14px 16px; margin:0 0 17px; border:1px solid rgba(255,160,85,.3); border-radius:13px; background:linear-gradient(110deg,rgba(255,115,43,.16),rgba(255,199,135,.07)); }
+.table-order-banner>span { display:grid; place-items:center; width:38px;height:38px; flex:0 0 38px; border-radius:50%; color:#301406; background:linear-gradient(130deg,#ffd09a,#ff873c); font-size:19px; }
+.table-order-banner div { display:flex; flex-direction:column; gap:3px; }
+.table-order-banner b { color:#fff0e2; font-size:13px; }
+.table-order-banner small { color:#d7b99f; font-size:10px; }
+.order-success { color:#183f29; background:linear-gradient(145deg,#eaf8ee,#dff1e5); border-color:#bee2ca; }
+.order-tracking { display:flex; flex-direction:column; gap:5px; margin:14px 0 17px; padding:14px; text-align:left; border:1px solid #d2e6d7; border-radius:12px; background:rgba(255,255,255,.68); }
+.order-tracking>b { color:#28543a; font-size:11px; }
+.order-tracking>span { color:#216c40; font-size:14px; font-weight:900; }
+.order-tracking>small { color:#587963; font-size:10px; line-height:1.5; }
+.order-tracking .mini-btn { align-self:flex-start; color:#245a39; border-color:#b6d7c0; margin-top:4px; }
+.table-after-order { margin-top:23px; padding-top:22px; border-top:1px solid rgba(44,112,67,.17); }
+.game-heading { text-align:center; margin-bottom:15px; }
+.game-heading h3 { margin:6px 0; font:700 clamp(21px,4vw,28px)/1.15 Georgia,serif; color:#244c33; }
+.game-heading p { color:#557663; font-size:11px; margin:0; }
+.tic-tac-toe { max-width:310px; margin:0 auto; padding:14px; border:1px solid #c8dfcf; border-radius:17px; background:rgba(255,255,255,.76); }
+.game-status { min-height:24px; margin-bottom:11px; text-align:center; color:#315b3f; font-size:11px; font-weight:850; }
+.game-board { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.game-cell { display:grid; place-items:center; aspect-ratio:1; border:1px solid #d0e3d5; border-radius:11px; color:#2f593d; background:#f5fbf6; font-size:clamp(26px,7vw,38px); font-weight:900; }
+.game-cell:disabled { opacity:1; cursor:default; }
+.game-cell.game-x { color:#e66d24; background:#fff4e9; }
+.game-cell.game-o { color:#397a50; background:#eef8f0; }
+.tic-tac-toe>.btn { margin-top:12px; color:#31593c; border-color:#c6ddcc; background:#fff; }
+.post-order-account { max-width:440px; margin:22px auto 0; padding:20px 18px; text-align:center; border:1px solid rgba(255,164,94,.35); border-radius:17px; background:linear-gradient(145deg,#fff7ed,#ffead7); }
+.account-spark { display:grid; place-items:center; width:37px;height:37px; margin:0 auto 7px; border-radius:50%; color:#4a1e09; background:linear-gradient(135deg,#ffd09b,#ff8a43); }
+.post-order-account h4 { margin:5px 0 6px; color:#442515; font:700 20px/1.2 Georgia,serif; }
+.post-order-account p { color:#78533b; font-size:11px; line-height:1.65; margin:0 0 13px; }
+.post-order-account .btn-google { margin:0 auto 7px; border-color:#d7c4b3; }
+.post-order-account>small { display:block; color:#8b705b; font-size:9px; }
+.table-create-form { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:12px; margin-bottom:12px; }
+.table-create-form label,.table-qr-content label { display:flex; flex-direction:column; gap:6px; color:#684c3d; font-size:11px; font-weight:800; }
+.table-create-form input,.table-qr-content input { min-width:0; width:100%; border:1px solid #decabb; border-radius:9px; padding:11px 12px; background:#fffaf5; color:#301c13; outline:0; }
+.table-qr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(245px,1fr)); gap:14px; margin-top:17px; }
+.table-qr-card { display:grid; grid-template-columns:112px minmax(0,1fr); gap:13px; padding:13px; border:1px solid #eaded3; border-radius:14px; background:#fffaf5; break-inside:avoid; }
+.table-qr-image { position:relative; align-self:start; padding:6px; border:1px solid #f0e0d2; border-radius:10px; background:#fff; }
+.table-qr-image img { display:block; width:100%; aspect-ratio:1; object-fit:contain; }
+.table-qr-image>span { display:block; padding:3px 0 0; color:#35724b; text-align:center; font-size:8px; font-weight:900; letter-spacing:.13em; }
+.table-qr-content { display:flex; flex-direction:column; gap:7px; min-width:0; }
+.table-qr-content label { font-size:10px; }
+.table-qr-content input { padding:8px; font-size:11px; }
+.table-qr-content>small { color:#907967; font-size:9px; }
+.table-qr-actions { display:flex; gap:5px; flex-wrap:wrap; margin-top:auto; }
+.table-qr-actions .mini-btn { font-size:9px; }
+.status-shipped { background:#e8f0ff; color:#315baf; }
+@media(max-width:700px) {
+  .dashboard-actions { width:100%; }
+  .dashboard-actions .btn { flex:1; }
+  .table-create-form { grid-template-columns:1fr; }
+  .table-create-form .btn { width:100%; }
+  .table-qr-grid { grid-template-columns:1fr; }
+  .table-qr-card { grid-template-columns:100px minmax(0,1fr); gap:10px; }
+  .table-after-order { margin-top:19px; }
+  .post-order-account { padding:17px 13px; }
+}
+@media print {
+  body * { visibility:hidden!important; }
+  #adminTables, #adminTables * { visibility:visible!important; }
+  #adminTables { display:block!important; position:absolute; left:0; top:0; width:100%; max-width:none; padding:0; margin:0; }
+  #adminTables .admin-page-title, #adminTables .admin-card>form, #adminTables .admin-card>.form-legal, #adminTables .dashboard-actions { display:none!important; }
+  #adminTables .admin-card { border:0; padding:0; margin:0; box-shadow:none; }
+  #adminTableGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:12mm; }
+  .table-qr-card { grid-template-columns:1fr; justify-items:center; border:1px solid #bbb; padding:8mm; }
+  .table-qr-image { width:55mm; }
+  .table-qr-content label input { border:0; text-align:center; font-weight:bold; }
+  .table-qr-actions { display:none!important; }
+}

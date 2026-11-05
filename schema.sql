@@ -59,13 +59,27 @@ CREATE TABLE IF NOT EXISTS orders (
   subtotal DECIMAL(12,2) NOT NULL,
   shipping_cost DECIMAL(12,2) NULL,
   total DECIMAL(12,2) NULL,
-  status ENUM('pending','confirmed','preparing','ready','delivered','cancelled') NOT NULL DEFAULT 'pending',
+  status ENUM('pending','confirmed','preparing','ready','shipped','delivered','cancelled') NOT NULL DEFAULT 'pending',
+  order_type ENUM('delivery','table') NOT NULL DEFAULT 'delivery',
+  table_id BIGINT UNSIGNED NULL,
+  table_label VARCHAR(80) NULL,
+  tracking_token CHAR(48) NULL,
   customer_note TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   INDEX idx_orders_created (created_at),
-  INDEX idx_orders_status (status)
+  INDEX idx_orders_status (status),
+  UNIQUE KEY uq_orders_tracking_token (tracking_token)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+CREATE TABLE IF NOT EXISTS dining_tables (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  label VARCHAR(80) NOT NULL UNIQUE,
+  public_token CHAR(48) NOT NULL UNIQUE,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS order_items (

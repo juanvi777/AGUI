@@ -1,0 +1,32 @@
+AGUI REPOSTERIA Y AREPAS — ACTUALIZACION 1.3
+
+INCLUIDO
+- QR individual por mesa, con identificador aleatorio propio.
+- Panel del dueño para agregar, renombrar, imprimir, descargar y eliminar mesas.
+- Pedidos de mesa sin registro: el QR identifica la mesa y el cliente solo escribe su nombre.
+- Domicilios con inicio de sesión Google obligatorio; Google debe devolver el correo como verificado.
+- Seguimiento de pedidos mediante token aleatorio y actualización de estado en la pantalla de confirmación.
+- Avisos internos de nuevos pedidos para el dueño y notificaciones del navegador si autoriza el permiso.
+- Avisos de cambios de estado para el cliente mientras mantiene abierta la pantalla de seguimiento.
+- Estados de pedido: pendiente, confirmado, preparando, listo para recoger, en camino, entregado y cancelado.
+- Acceso desde el detalle del pedido para enviar un mensaje contextual por WhatsApp.
+- Triqui contra un bot después de confirmar pedidos desde mesa, con invitación opcional a crear una cuenta Google.
+- Migración MySQL aditiva y automática al iniciar la aplicación; conserva datos existentes.
+
+ANTES DE PUBLICAR EN RAILWAY
+1. Configura BASE_URL con el dominio público de AGUI.
+2. Configura GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET.
+3. Configura GOOGLE_CALLBACK_URL como https://TU-DOMINIO/auth/google/callback y registra exactamente ese callback en Google Cloud.
+4. Mantén REQUIRE_GOOGLE_LOGIN=true (el código fuerza Google para domicilios; QR de mesa es la excepción).
+5. Publica únicamente el servicio web AGUI. No hagas redeploy de MySQL por estos cambios.
+6. La primera carga de la aplicación ejecuta la migración de tablas/columnas necesarias de forma aditiva.
+
+NOTAS IMPORTANTES
+- El servicio de imágenes QR necesita conexión saliente del servidor al proveedor QR externo.
+- Los avisos del cliente se muestran mientras la pantalla de seguimiento permanece abierta. Los avisos del dueño se muestran mientras el panel está abierto.
+- El envío de correo y la recuperación de contraseña de Guillermo no se incluyen en esta entrega: falta configurar un proveedor de correo transaccional. No se habilitó una recuperación pública sin verificación porque dejaría expuesto el panel del dueño.
+- No se incluyó el archivo .env. Configura las variables en Railway o crea un .env local a partir de .env.example. No compartas secretos.
+
+VERIFICACION
+- npm run check: correcto (node --check de server.js, init-db.js y public/js/app.js).
+- Se verificó que los identificadores HTML no estén duplicados y que los selectores directos del JS apunten a elementos existentes.

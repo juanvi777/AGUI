@@ -21,7 +21,7 @@ const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\
 const BUSINESS_DEFAULTS = Object.freeze({ address: 'Cra. 52 No. 56 A-54, Vegachí, Antioquia, Colombia', phone: '3122405580', whatsapp: '573122405580' });
 const DB_NAME = process.env.DB_NAME || 'agui_store';
 const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-const requireGoogle = String(process.env.REQUIRE_GOOGLE_LOGIN || 'false').toLowerCase() === 'true';
+const requireGoogle = true; // Los clientes deben autenticarse con Google; los pedidos QR de mesa son la única excepción.
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || process.env.SESSION_SECRET.includes('CAMBIA_')) {
   console.error('Configura SESSION_SECRET en .env con al menos 32 caracteres aleatorios.');
@@ -87,7 +87,7 @@ app.use((req, _res, next) => {
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const [rows] = await pool.execute('SELECT id, email, full_name, phone FROM customers WHERE id = ?', [id]);
+    const [rows] = await pool.execute('SELECT id, email, full_name, phone, google_id FROM customers WHERE id = ?', [id]);
     done(null, rows[0] || false);
   } catch (e) { done(e); }
 });
@@ -107,7 +107,7 @@ if (googleConfigured) {
          ON DUPLICATE KEY UPDATE google_id = VALUES(google_id), full_name = VALUES(full_name)`,
         [profile.id, email, fullName]
       );
-      const [rows] = await pool.execute('SELECT id, email, full_name, phone FROM customers WHERE email = ?', [email]);
+      const [rows] = await pool.execute('SELECT id, email, full_name, phone, google_id FROM customers WHERE email = ?', [email]);
       done(null, rows[0]);
     } catch (e) { done(e); }
   }));
@@ -235,6 +235,7 @@ function finishCustomerLogin(req, res, next, customer) {
 }
 
 app.post('/api/auth/customer/register', loginLimiter, async (req, res, next) => {
+  if (requireGoogle) return res.status(403).json({ error: 'Para crear una cuenta de cliente debes continuar con Google.' });
   try {
     const fullName = cleanText(req.body.full_name, 160);
     const email = cleanText(req.body.email, 254).toLowerCase();
@@ -255,6 +256,7 @@ app.post('/api/auth/customer/register', loginLimiter, async (req, res, next) => 
 });
 
 app.post('/api/auth/customer/login', loginLimiter, async (req, res, next) => {
+  if (requireGoogle) return res.status(403).json({ error: 'El acceso de clientes se realiza con Google. Usa el botón Continuar con Google.' });
   try {
     const email = cleanText(req.body.email, 254).toLowerCase();
     const password = String(req.body.password || '');
@@ -408,12 +410,65 @@ app.get('/api/admin/orders', requireAdmin, async (req, res, next) => {
 app.patch('/api/admin/orders/:id', requireAdmin, async (req, res, next) => {
   try {
     const status = cleanText(req.body.status, 30);
-    if (!['pending','confirmed','preparing','ready','delivered','cancelled'].includes(status)) return res.status(400).json({ error: 'Estado de pedido no válido.' });
+    if (!['pending','confirmed','preparing','ready','shipped','delivered','cancelled'].includes(status)) return res.status(400).json({ error: 'Estado de pedido no válido.' });
     const [result] = await pool.execute('UPDATE orders SET status=? WHERE id=?', [status, Number(req.params.id)]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Pedido no encontrado.' });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
+app.get('/api/admin/tables', requireAdmin, async (_req, res, next) => {
+  try { const [rows] = await pool.query('SELECT id, label, public_token, active, created_at FROM dining_tables ORDER BY id'); res.json(rows); }
+  catch (e) { next(e); }
+});
+app.get('/api/admin/tables/:id/qr.png', requireAdmin, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'ID de mesa no válido.' });
+    const [rows] = await pool.execute('SELECT label, public_token FROM dining_tables WHERE id = ? AND active = 1 LIMIT 1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Mesa no encontrada o inactiva.' });
+    const target = `${BASE_URL}/?mesa=${encodeURIComponent(rows[0].public_token)}`;
+    const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=520x520&format=png&margin=14&data=${encodeURIComponent(target)}`;
+    const qrResponse = await fetch(qrApi, { headers: { 'Accept': 'image/png' } });
+    if (!qrResponse.ok) return res.status(502).json({ error: 'No se pudo generar la imagen del QR. Intenta nuevamente.' });
+    const bytes = Buffer.from(await qrResponse.arrayBuffer());
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename="AGUI-QR-MESA-${id}.png"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(bytes);
+  } catch (e) { next(e); }
+});
+
+app.post('/api/admin/tables', requireAdmin, async (req, res, next) => {
+  try {
+    const label = cleanText(req.body.label, 80);
+    if (!label) return res.status(400).json({ error: 'Escribe el nombre o número de la mesa.' });
+    const token = crypto.randomBytes(24).toString('hex');
+    const [result] = await pool.execute('INSERT INTO dining_tables (label, public_token, active) VALUES (?, ?, 1)', [label, token]);
+    res.status(201).json({ id: result.insertId, label, public_token: token, active: 1 });
+  } catch (e) { if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Ya existe una mesa con ese nombre.' }); next(e); }
+});
+app.patch('/api/admin/tables/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id); const label = cleanText(req.body.label, 80);
+    if (!Number.isInteger(id) || id < 1 || !label) return res.status(400).json({ error: 'Mesa o nombre no válido.' });
+    const active = req.body.active === false ? 0 : 1;
+    const [result] = await pool.execute('UPDATE dining_tables SET label = ?, active = ? WHERE id = ?', [label, active, id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Mesa no encontrada.' });
+    const [rows] = await pool.execute('SELECT id, label, active FROM dining_tables WHERE id = ?', [id]);
+    res.json(rows[0]);
+  } catch (e) { if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Ya existe una mesa con ese nombre.' }); next(e); }
+});
+app.delete('/api/admin/tables/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'ID de mesa no válido.' });
+    // Conserva el número de mesa escrito en los pedidos históricos, pero invalida el QR retirado.
+    const [result] = await pool.execute('DELETE FROM dining_tables WHERE id = ?', [id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Mesa no encontrada.' });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 app.get('/api/admin/zones', requireAdmin, async (_req, res, next) => {
   try { const [rows] = await pool.query('SELECT * FROM delivery_zones ORDER BY name'); res.json(rows); }
   catch (e) { next(e); }
@@ -445,25 +500,68 @@ app.put('/api/admin/settings', requireAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-app.post('/api/orders', orderLimiter, requireCustomer, async (req, res, next) => {
+// Mesa QR: solo expone el nombre visible de una mesa activa, nunca datos del negocio.
+app.get('/api/tables/:token', async (req, res, next) => {
+  try {
+    const token = cleanText(req.params.token, 64);
+    if (!/^[a-f0-9]{48}$/.test(token)) return res.status(404).json({ error: 'Código de mesa no válido.' });
+    const [rows] = await pool.execute('SELECT label FROM dining_tables WHERE public_token = ? AND active = 1 LIMIT 1', [token]);
+    if (!rows.length) return res.status(404).json({ error: 'Esta mesa ya no está disponible. Pide ayuda al personal de AGUI.' });
+    res.json({ label: rows[0].label });
+  } catch (e) { next(e); }
+});
+
+// Seguimiento de solo lectura usando un token aleatorio de alta entropía entregado al crear el pedido.
+app.get('/api/orders/track/:token', async (req, res, next) => {
+  try {
+    const token = cleanText(req.params.token, 64);
+    if (!/^[a-f0-9]{48}$/.test(token)) return res.status(404).json({ error: 'No encontramos el seguimiento de este pedido.' });
+    const [rows] = await pool.execute('SELECT order_number, status, order_type, table_label, updated_at FROM orders WHERE tracking_token = ? LIMIT 1', [token]);
+    if (!rows.length) return res.status(404).json({ error: 'No encontramos el seguimiento de este pedido.' });
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+app.post('/api/orders', orderLimiter, async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     const body = req.body || {};
-    const customerName = cleanText((req.user && req.user.full_name) || body.customer_name, 160);
-    const customerEmail = cleanText((req.user && req.user.email) || body.customer_email, 254).toLowerCase();
-    const customerPhone = cleanText(body.customer_phone, 30);
-    const zoneName = cleanText(body.delivery_zone, 100);
-    const address = cleanText(body.delivery_address, 255);
+    const orderType = cleanText(body.order_type || 'delivery', 20);
+    if (!['delivery', 'table'].includes(orderType)) return res.status(400).json({ error: 'Tipo de pedido no válido.' });
+    let table = null;
+    if (orderType === 'table') {
+      const tableToken = cleanText(body.table_token, 64);
+      if (!/^[a-f0-9]{48}$/.test(tableToken)) return res.status(400).json({ error: 'Escanea nuevamente el código QR de tu mesa.' });
+      const [tableRows] = await conn.execute('SELECT id, label FROM dining_tables WHERE public_token = ? AND active = 1 LIMIT 1', [tableToken]);
+      if (!tableRows.length) return res.status(400).json({ error: 'Esta mesa ya no está disponible. Solicita ayuda al personal.' });
+      table = tableRows[0];
+    } else {
+      if (!req.user) return res.status(401).json({ error: 'Para domicilios debes iniciar sesión con Google.' });
+      if (requireGoogle && !req.user.google_id) return res.status(403).json({ error: 'Para realizar domicilios debes ingresar con una cuenta de Google verificada.' });
+    }
+
+    const customerName = cleanText(orderType === 'table' ? body.customer_name : (req.user && req.user.full_name), 160);
+    const customerEmail = orderType === 'table' ? '' : cleanText((req.user && req.user.email) || '', 254).toLowerCase();
+    const customerPhone = orderType === 'table' ? '' : cleanText(body.customer_phone, 30);
+    const zoneName = orderType === 'table' ? 'En mesa' : cleanText(body.delivery_zone, 100);
+    const address = orderType === 'table' ? `Mesa ${table.label}` : cleanText(body.delivery_address, 255);
     const deliveryNotes = cleanText(body.delivery_notes, 1000);
-    const payment = cleanText(body.payment_method, 60);
+    const payment = orderType === 'table' ? 'en_mesa' : cleanText(body.payment_method, 60);
     const items = Array.isArray(body.items) ? body.items : [];
-    if (!customerName || !customerPhone || !zoneName || !address) return res.status(400).json({ error: 'Completa nombre, teléfono, zona y dirección de entrega.' });
-    if (!['contraentrega','transferencia'].includes(payment)) return res.status(400).json({ error: 'Ese medio de pago todavía no está activo en la tienda.' });
+
+    if (!customerName || (orderType === 'delivery' && (!customerPhone || !zoneName || !address))) {
+      return res.status(400).json({ error: orderType === 'table' ? 'Escribe tu nombre para enviar el pedido.' : 'Completa nombre, teléfono, zona y dirección de entrega.' });
+    }
+    if (orderType === 'delivery' && !['contraentrega','transferencia'].includes(payment)) return res.status(400).json({ error: 'Ese medio de pago todavía no está activo en la tienda.' });
     if (!items.length || items.length > 25) return res.status(400).json({ error: 'El carrito no tiene productos válidos.' });
+
     await conn.beginTransaction();
-    const [zoneRows] = await conn.execute('SELECT * FROM delivery_zones WHERE name = ? AND active = 1 FOR UPDATE', [zoneName]);
-    if (!zoneRows.length) { await conn.rollback(); return res.status(400).json({ error: 'Selecciona una zona de entrega válida.' }); }
-    const zone = zoneRows[0];
+    let zone = null;
+    if (orderType === 'delivery') {
+      const [zoneRows] = await conn.execute('SELECT * FROM delivery_zones WHERE name = ? AND active = 1 FOR UPDATE', [zoneName]);
+      if (!zoneRows.length) { await conn.rollback(); return res.status(400).json({ error: 'Selecciona una zona de entrega válida.' }); }
+      zone = zoneRows[0];
+    }
     const cleanItems = []; let subtotal = 0;
     for (const item of items) {
       const id = Number(item.id); const quantity = Number(item.quantity);
@@ -478,26 +576,30 @@ app.post('/api/orders', orderLimiter, requireCustomer, async (req, res, next) =>
       cleanItems.push({ id, name: p.name, price: Number(p.price), quantity, total: lineTotal, stock: p.stock });
     }
     subtotal = money(subtotal);
-    const shipping = zone.shipping_fee === null ? null : Number(zone.shipping_fee);
+    const shipping = orderType === 'table' ? 0 : (zone.shipping_fee === null ? null : Number(zone.shipping_fee));
     const total = shipping === null ? null : money(subtotal + shipping);
     const orderNumber = `AG-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const customerId = req.user ? req.user.id : null;
-    if (customerId) await conn.execute('UPDATE customers SET phone = ? WHERE id = ?', [customerPhone, customerId]);
-    const [orderResult] = await conn.execute(
-      `INSERT INTO orders (order_number, customer_id, customer_name, customer_email, customer_phone, delivery_zone, delivery_address, delivery_notes, payment_method, subtotal, shipping_cost, total, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [orderNumber, customerId, customerName, customerEmail || null, customerPhone, zoneName, address, deliveryNotes, payment, subtotal, shipping, total]
+    const trackingToken = crypto.randomBytes(24).toString('hex');
+    const customerId = orderType === 'table' ? null : req.user.id;
+    if (customerId && customerPhone) await conn.execute('UPDATE customers SET phone = ? WHERE id = ?', [customerPhone, customerId]);
+    await conn.execute(
+      `INSERT INTO orders (order_number, customer_id, customer_name, customer_email, customer_phone, delivery_zone, delivery_address, delivery_notes, payment_method, subtotal, shipping_cost, total, status, order_type, table_id, table_label, tracking_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+      [orderNumber, customerId, customerName, customerEmail || null, customerPhone, zoneName, address, deliveryNotes, payment, subtotal, shipping, total, orderType, table ? table.id : null, table ? table.label : null, trackingToken]
     );
+    const [orderRows] = await conn.execute('SELECT id FROM orders WHERE order_number = ?', [orderNumber]);
+    const orderId = orderRows[0].id;
     for (const item of cleanItems) {
-      await conn.execute('INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, line_total) VALUES (?, ?, ?, ?, ?, ?)', [orderResult.insertId,item.id,item.name,item.price,item.quantity,item.total]);
+      await conn.execute('INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, line_total) VALUES (?, ?, ?, ?, ?, ?)', [orderId,item.id,item.name,item.price,item.quantity,item.total]);
       if (item.stock !== null) await conn.execute('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity,item.id]);
     }
     await conn.commit();
     const itemLines = cleanItems.map(i => `• ${i.name} x${i.quantity}: $${i.total.toLocaleString('es-CO')}`).join('\n');
-    const message = `Hola, AGUI. Quiero confirmar el pedido ${orderNumber}.\n\n${itemLines}\n\nSubtotal: $${subtotal.toLocaleString('es-CO')}\nEnvío: ${shipping === null ? 'por confirmar' : `$${shipping.toLocaleString('es-CO')}`}\nTotal: ${total === null ? 'por confirmar con AGUI' : `$${total.toLocaleString('es-CO')}`}\n\nNombre: ${customerName}\nTeléfono: ${customerPhone}\nZona: ${zoneName}\nDirección: ${address}\nPago: ${payment === 'contraentrega' ? 'Contra entrega' : 'Transferencia bancaria'}${deliveryNotes ? `\nNotas: ${deliveryNotes}` : ''}`;
+    const contextLine = orderType === 'table' ? `Modalidad: Pedido en mesa ${table.label}` : `Modalidad: Domicilio\nZona: ${zoneName}\nDirección: ${address}`;
+    const message = `Hola, AGUI. Quiero confirmar el pedido ${orderNumber}.\n\n${itemLines}\n\nSubtotal: $${subtotal.toLocaleString('es-CO')}\n${orderType === 'table' ? `Total: $${total.toLocaleString('es-CO')}` : `Envío: ${shipping === null ? 'por confirmar' : `$${shipping.toLocaleString('es-CO')}`}\nTotal: ${total === null ? 'por confirmar con AGUI' : `$${total.toLocaleString('es-CO')}`}\nPago: ${payment === 'contraentrega' ? 'Contra entrega' : 'Transferencia bancaria'}`}\n\nNombre: ${customerName}\n${contextLine}${deliveryNotes ? `\nNotas: ${deliveryNotes}` : ''}`;
     const [waRows] = await conn.execute('SELECT setting_value FROM settings WHERE setting_key = ?', ['business_whatsapp']);
     const configuredWhatsApp = (waRows[0] && waRows[0].setting_value) || BUSINESS_DEFAULTS.whatsapp;
-    res.status(201).json({ ok: true, order_number: orderNumber, subtotal, shipping_cost: shipping, total, whatsapp_url: whatsappUrl(message, configuredWhatsApp), notice: 'Pedido registrado como pendiente. AGUI debe confirmar disponibilidad y entrega por WhatsApp.' });
+    res.status(201).json({ ok: true, order_number: orderNumber, tracking_token: trackingToken, order_type: orderType, table_label: table ? table.label : null, subtotal, shipping_cost: shipping, total, whatsapp_url: whatsappUrl(message, configuredWhatsApp), notice: orderType === 'table' ? `Tu pedido para la mesa ${table.label} fue recibido y está pendiente de confirmación.` : 'Pedido registrado como pendiente. AGUI debe confirmar disponibilidad y entrega por WhatsApp.' });
   } catch (e) {
     try { await conn.rollback(); } catch (_) {}
     next(e);
@@ -531,7 +633,30 @@ app.use((err, _req, res, _next) => {
 async function start() {
   try {
     await pool.query('SELECT 1');
-    // Migración automática: permite actualizar una base existente sin borrar datos.
+    // Migraciones aditivas e idempotentes: nunca eliminan pedidos, clientes ni productos.
+    await pool.query(`CREATE TABLE IF NOT EXISTS dining_tables (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      label VARCHAR(80) NOT NULL UNIQUE,
+      public_token CHAR(48) NOT NULL UNIQUE,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    const additions = [
+      ['order_type', "ALTER TABLE orders ADD COLUMN order_type ENUM('delivery','table') NOT NULL DEFAULT 'delivery' AFTER status"],
+      ['table_id', 'ALTER TABLE orders ADD COLUMN table_id BIGINT UNSIGNED NULL AFTER order_type'],
+      ['table_label', 'ALTER TABLE orders ADD COLUMN table_label VARCHAR(80) NULL AFTER table_id'],
+      ['tracking_token', 'ALTER TABLE orders ADD COLUMN tracking_token CHAR(48) NULL AFTER table_label']
+    ];
+    for (const [column, sql] of additions) {
+      const [found] = await pool.execute(`SHOW COLUMNS FROM orders LIKE '${column}'`);
+      if (!found.length) await pool.query(sql);
+    }
+    const [trackingIndex] = await pool.execute("SHOW INDEX FROM orders WHERE Key_name = 'uq_orders_tracking_token'");
+    if (!trackingIndex.length) await pool.query('CREATE UNIQUE INDEX uq_orders_tracking_token ON orders (tracking_token)');
+    const [statusColumns] = await pool.execute("SHOW COLUMNS FROM orders LIKE 'status'");
+    if (statusColumns.length && !String(statusColumns[0].Type).includes("'shipped'")) {
+      await pool.query("ALTER TABLE orders MODIFY COLUMN status ENUM('pending','confirmed','preparing','ready','shipped','delivered','cancelled') NOT NULL DEFAULT 'pending'");
+    }
     const [customerColumns] = await pool.execute("SHOW COLUMNS FROM customers LIKE 'password_hash'");
     if (!customerColumns.length) {
       await pool.query('ALTER TABLE customers ADD COLUMN password_hash VARCHAR(255) NULL AFTER full_name');
